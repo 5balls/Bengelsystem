@@ -60,6 +60,10 @@ if (!isset($_SESSION["HelferID"])) {
 </head>
 <body>
 <div id=jquerywarn></div>
+<div class="header">
+   <img alt="BürokratCon AA Logo" src="buerokratcon_arbeitsamt.svg" />
+   <h1>BürokratCon Agentur für Arbeit (Helferschichtensystem)</h1>
+</div>
 <form method="post" action="#Info">
 
   <fieldset>
@@ -88,6 +92,13 @@ if (!isset($_SESSION["HelferID"])) {
 
 
  </form> 
+<div>
+Noch keinen Account? <a href="https://login.jonglaria.org/requestaccount">Hier einen anlegen!</a>
+</div>
+<div>
+Passwort vergessen? <a href="https://login.jonglaria.org/password/requestreset/">Hier zurücksetzen!</a>
+</div>
+
 </body>
 </html>
     <?php
