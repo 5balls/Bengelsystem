@@ -1,3 +1,7 @@
+# This is just a fork for experimental changes!
+
+Please use the original https://github.com/iridos/Bengelsystem
+
 # Bengelsystem
 Bengelsystem is a platform to schedule shifts of volunteers primarily for jugglig conventions. Helpers register at the platform and choose shifts. The admin of the website can add new tasks and shifts.
 
