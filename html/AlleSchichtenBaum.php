@@ -8,8 +8,9 @@ require_once '_functions.php';
 
 $pagename = "Alle Schichten (Baum)";
 $backlink = "index.php";
+$AktuellerDienst = GetAktuellenDienstKontext();
 echo PageHeader($pagename);
-echo TableHeader($pagename, $backlink);
+echo TableHeader($pagename, $backlink, EVENTNAME, "", DienstEbeneUpLinkHtml($db_link, $AktuellerDienst));
 
 $_SESSION['AliasHelferID']   = $HelferID;
 $_SESSION['AliasHelferName'] = $HelferName;

@@ -22,7 +22,7 @@ HEADER; //<?vim this bracket is just here for vim syntax highlighting
     return $header;
 }
 
-function TableHeader ($pagename, $backlink, $eventname = EVENTNAME, $backlinkTop=""){
+function TableHeader ($pagename, $backlink, $eventname = EVENTNAME, $backlinkTop="", $upLinkHtml = ""){
     // pagename: name of the page for display in title
     // backlink: to what page does the "back" link at the top of the page point
     // eventname: fill from constant EVENTNAME. Change needed only for special cases;
@@ -39,12 +39,43 @@ function TableHeader ($pagename, $backlink, $eventname = EVENTNAME, $backlinkTop
         <b>&larrhk;</b>
         </button> &nbsp;
         </a>
+        $upLinkHtml
        <b>$pagename $eventname</b>
        </th>
        </tr>
     </table>
 TABLEHEAD; // <?vim
     return $tablehead;
+}
+
+/**
+ * Liefert fertiges HTML für den "Eine Ebene höher"-Button in der Dienst-Baum-
+ * Navigation, oder "" wenn man auf Top-Level ist (Button dann einfach weglassen).
+ * Ziel wird über ElternDienstID des aktuellen Dienstes bestimmt:
+ * - Elterndienst vorhanden  -> ?dienst=<ElternDienstID>
+ * - kein Elterndienst (Kind von Top-Level) -> Seite ohne dienst-Parameter, also Top-Level
+ * Gedacht zum Einsatz neben dem bestehenden Zurück-Button (TableHeader $upLinkHtml),
+ * NICHT als Ersatz für den Zurück-Button -- der bleibt der Ausstieg aus der ganzen
+ * Baum-Ansicht, dieser hier bleibt innerhalb der Hierarchie.
+ */
+function DienstEbeneUpLinkHtml($db_link, ?int $AktuellerDienst): string
+{
+    if ($AktuellerDienst === null) {
+        return ''; // Top-Level: kein Elternlevel, kein Button
+    }
+    $dienst = GetEinzelDienst($db_link, $AktuellerDienst);
+    $ElternDienstID = $dienst['ElternDienstID'] ?? null;
+
+    $ziel = htmlspecialchars($_SERVER['PHP_SELF']);
+    if ($ElternDienstID) {
+        $ziel .= '?dienst=' . (int)$ElternDienstID;
+    }
+    // sonst: Elterndienst ist Top-Level -> Seite ohne dienst-Parameter
+
+    return '<button type="button" name="EbeneHoch" title="Eine Ebene höher" '
+         . 'onclick="window.location.href=\'' . $ziel . '\';">'
+         . '<b>&uarr;</b>'
+         . '</button> &nbsp;';
 }
 // Aus  *AlleSchichten.php
 function SchichtInfo($SchichtID, &$Was, &$Wo, &$Dauer, &$Leiter, &$LeiterHandy, &$LeiterEmail, &$Info)
@@ -662,7 +693,7 @@ function _ZeigeDienstDrilldown($db_link, $AktuellerDienst, $Von, $Bis, $HelferID
         $MeineDienste = SchichtIdArrayEinesHelfers($db_link, $HelferID);
         $schichten = AlleSchichtenImZeitbereich($db_link, $Von, $Bis, -1, $AktuellerDienst, false);
         while ($zeile = mysqli_fetch_array($schichten, MYSQLI_ASSOC)) {
-            _ZeigeSchichtZeile($zeile, $o['modus'], $MeineDienste, $o['HelferLevel']);
+            _ZeigeSchichtZeile($zeile, $o['modus'], $MeineDienste, $o['HelferLevel'], false);
         }
     }
 }

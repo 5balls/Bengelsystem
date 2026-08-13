@@ -780,7 +780,7 @@ function GetDiensteChildren($db_link, $DienstID)#stmt2
     // $DienstID NULL anderes Queryformat
     if ($DienstID === null) {
         global $debug;
-        $debug=1;
+        //$debug=1;
         $ElternDienstQuery = "IS NULL";
         $sql = "SELECT DienstID, Was, Wo, Info, Leiter, HelferLevel FROM Dienst where ElternDienstID $ElternDienstQuery ORDER BY Was";
         $stmt = stmt_prepare_and_execute($db_link, $sql);
