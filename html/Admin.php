@@ -59,14 +59,25 @@ echo $tablehead; // variablen aus _login.php
     </td>
   </tr>
   <tr>
-  <tr onclick="window.location.href='AdminDienste.php';">
-    <td>
-     <a class="fallbacklink" href='AdminDienste.php'>
-        <img src="Bilder/PfeilRechts.jpeg" style="width:30px;height:30px;">
-        <b> Dienste und Schichten verwalten</b>
-     </a>
-    </td>
-  </tr>
+<tr onclick="window.location.href='AdminDienste.php';">
+<td>
+ <a class="fallbacklink" href='AdminDienste.php'>
+    <img src="Bilder/PfeilRechts.jpeg" style="width:30px;height:30px;">
+    <b> Dienste und Schichten verwalten</b>
+ </a>
+</td>
+</tr>
+<?// add AlleSchichtenBaum.php to Admin Menu for testing ?>
+<tr onclick="window.location.href='AlleSchichtenBaum.php';">
+<td>
+ <a class="fallbacklink" href='AlleSchichtenBaum.php'>
+    <img src="Bilder/PfeilRechts.jpeg" style="width:30px;height:30px;">
+    <b> Dev: AlleSchichtenBaum Hierarchie</b>
+ </a>
+</td>
+</tr>
+
+
     <!--tr onclick="window.location.href='CreateHelfer.php';"> <td>
     <img src="Bilder/More.jpeg" style="width:30px;height:30px;"><b>Seite zur selbst-Registrierung</b>
     </td> </tr-->

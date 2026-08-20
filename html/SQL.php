@@ -1160,7 +1160,7 @@ function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
         UPDATE Schicht 
         SET Von=?, Bis=?, Soll=?, Dauer=?
         WHERE SchichtID=?";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssiii", $Von, $Bis, $Soll, $Dauer, $SchichtID);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssisi", $Von, $Bis, $Soll, $Dauer, $SchichtID);
     if (!$stmt) {error_log("Fehler in ChangeSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
     return $result;
@@ -1169,12 +1169,12 @@ function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
 function NewSchicht($db_link, $DienstID, $Von, $Bis, $Soll, $Dauer, $HelferName) #stmt2
 {
     $sql = "INSERT INTO Schicht (DienstID, Von, Bis, Soll, Dauer) values (?,?,?,?,?)";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "issii", $DienstID, $Von, $Bis, $Soll, $Dauer);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "issis", $DienstID, $Von, $Bis, $Soll, $Dauer);
     if (!$stmt) {error_log("Fehler in NewSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
     if ($result != 1) {
         echo "Keine Schicht erstellt";
-        $full_sql = debug_sql($sql, "issii", [ $DienstID, $Von, $Bis, $Soll, $Dauer ]);
+        $full_sql = debug_sql($sql, "issis", [ $DienstID, $Von, $Bis, $Soll, $Dauer ]);
         $err = "  NeueSchicht: $HelferName   konnte Schicht nicht angelegt mit $full_sql  \n";
         error_log(date('Y-m-d H:i') . $err , 3, LOGFILE);
         die('Ungueltige Abfrage: ' . $err);
