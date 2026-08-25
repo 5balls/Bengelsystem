@@ -17,10 +17,6 @@ if (isset($_GET['logout']) || isset($_POST['logout'])) {
 ////////////////////////////////////////////////////////
 if (isset($_POST['login'])) {
     $messages = [];
-    // Eingaben überprüfen:
-    //if(!preg_match('/^[a-zA-Z]+[a-zA-Z0-9._]+$/', $HelferName)) {
-    //  $messages[] = 'Bitte prüfen Sie die eingegebenen Namen';
-    //}
 
     $HelferEmail = $_POST['helfer-email'];
     $HelferPasswort = $_POST['helfer-passwort'];

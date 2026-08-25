@@ -35,14 +35,15 @@ function debug_sql($sql, $types, $params) {#stmtnoneed
 }
 
 function stmt_prepare_and_execute($db_link, $sql, $types = "", ...$params) {#stmt-func
+    global $debug;
     try {
         $stmt = mysqli_prepare($db_link, $sql);
         if ($types !== "") {
             mysqli_stmt_bind_param($stmt, $types, ...$params);
         }
         if (!mysqli_stmt_execute($stmt)) {
-            $err = "Execute failed: " . mysqli_stmt_error($stmt) . "\nSQL: $sql";
-            $err .= debug_sql($sql, $types, $params);
+            $err = "Execute failed: " . mysqli_stmt_error($stmt) . "  \n\nSQL: $sql \n";
+            $err .= "debug_sql: " . debug_sql($sql, $types, $params);
             error_log($err);
             echo nl2br($err);
             return false;
@@ -479,8 +480,34 @@ function AlleSchichten($db_link, $Sort, $HelferLevel = 1)#stmt
     mysqli_stmt_close($stmt);
     return $result;
 }
+function AlleSchichtenCount($db_link, $HelferLevel = -1, $DienstID = -1, $Rekursiv = false)#stmt
+{
+    $sql = "SELECT SUM(Soll) AS Anzahl FROM SchichtUebersicht
+            JOIN Dienst ON SchichtUebersicht.DienstID = Dienst.DienstID WHERE 1=1";
+    $params = [];
+    $types = "";
 
-function AlleSchichtenCount($db_link, $HelferLevel = -1, $DienstID = -1)#stmt
+    if ($HelferLevel != -1) {
+        $sql .= " AND HelferLevel = ?";
+        $params[] = $HelferLevel;
+        $types .= "i";
+    }
+
+    if ($DienstID != -1) {
+        $sql .= $Rekursiv
+            ? " AND Dienst.DienstBaumPfad LIKE (SELECT CONCAT(D2.DienstBaumPfad, '%') FROM Dienst D2 WHERE D2.DienstID = ?)"
+            : " AND Dienst.DienstID = ?";
+        $params[] = $DienstID;
+        $types .= "i";
+    }
+    $stmt = stmt_prepare_and_execute($db_link, $sql, $types, ...$params);
+    $result = mysqli_stmt_get_result($stmt);
+    mysqli_stmt_close($stmt);
+    $zeile = mysqli_fetch_array($result, MYSQLI_ASSOC);
+    return $zeile['Anzahl'] ?? 0;
+}
+#old
+function oldAlleSchichtenCount($db_link, $HelferLevel = -1, $DienstID = -1)#stmt
 {
     $sql = "SELECT SUM(Soll) AS Anzahl FROM SchichtUebersicht
             JOIN Dienst ON SchichtUebersicht.DienstID = Dienst.DienstID WHERE 1=1";
@@ -535,8 +562,52 @@ function AlleBelegteSchichtenCount($db_link, $HelferLevel = -1, $DienstID = -1)#
 
     return $zeile['Anzahl'];
 }
+function AlleBelegteSchichtenCountMitSurplus($db_link, $HelferLevel = -1, $DienstID = -1, $Rekursiv = false) {
+    $sql = "SELECT 
+                SUM(LEAST(Soll, Belegt)) AS Besetzt,
+                SUM(GREATEST(0, Belegt - Soll)) AS Ueberbelegt
+            FROM (
+                SELECT 
+                    Schicht.SchichtID,
+                    COUNT(EinzelSchicht.HelferID) AS Belegt,
+                    Schicht.Soll
+                FROM Schicht
+                LEFT JOIN EinzelSchicht ON EinzelSchicht.SchichtID = Schicht.SchichtID
+                JOIN Dienst ON Schicht.DienstID = Dienst.DienstID
+                WHERE 1=1";
 
-function AlleBelegteSchichtenCountMitSurplus($db_link, $HelferLevel = -1, $DienstID = -1) {
+    $params = [];
+    $types = "";
+
+    if ($HelferLevel != -1) {
+        $sql .= " AND Dienst.HelferLevel = ?";
+        $params[] = $HelferLevel;
+        $types .= "i";
+    }
+
+    if ($DienstID != -1) {
+        $sql .= $Rekursiv
+            ? " AND Dienst.DienstBaumPfad LIKE (SELECT CONCAT(D2.DienstBaumPfad, '%') FROM Dienst D2 WHERE D2.DienstID = ?)"
+            : " AND Dienst.DienstID = ?";
+        $params[] = $DienstID;
+        $types .= "i";
+    }
+
+    $sql .= " GROUP BY Schicht.SchichtID, Schicht.Soll
+            ) AS Belegung";
+
+    $stmt = stmt_prepare_and_execute($db_link, $sql, $types, ...$params);
+    $result = mysqli_stmt_get_result($stmt);
+    mysqli_stmt_close($stmt);
+
+    $zeile = mysqli_fetch_array($result, MYSQLI_ASSOC);
+    return [
+        'besetzt' => (int)($zeile['Besetzt'] ?? 0),
+        'ueberbelegt' => (int)($zeile['Ueberbelegt'] ?? 0)
+    ];
+}
+
+function oldAlleBelegteSchichtenCountMitSurplus($db_link, $HelferLevel = -1, $DienstID = -1) {
     $sql = "SELECT 
                 SUM(LEAST(Soll, Belegt)) AS Besetzt,
                 SUM(GREATEST(0, Belegt - Soll)) AS Ueberbelegt
@@ -579,10 +650,43 @@ function AlleBelegteSchichtenCountMitSurplus($db_link, $HelferLevel = -1, $Diens
     ];
 }
 
-
-function AlleSchichtenImZeitbereich($db_link, $Von, $Bis, $HelferLevel = -1)#stmt
+function AlleSchichtenImZeitbereich($db_link, $Von, $Bis, $HelferLevel = -1, $DienstID = -1, $Rekursiv = false)#stmt
 {
-    //debug only error_log("AlleSchichtenImZeitbereich Abfrage:  $Von, $Bis, $HelferLevel");
+    $sql_helferlevel = ($HelferLevel == -1) ? "" : "AND Dienst.HelferLevel = ?";
+    $sql_dienst = "";
+    if ($DienstID != -1) {
+        $sql_dienst = $Rekursiv
+            ? "AND Dienst.DienstBaumPfad LIKE (SELECT CONCAT(D2.DienstBaumPfad, '%') FROM Dienst D2 WHERE D2.DienstID = ?)"
+            : "AND Dienst.DienstID = ?";
+    }
+
+    $sql =  "SELECT SchichtID,Was,
+                DATE_FORMAT(Von,'%a %H:%i') AS Ab,
+                DATE_FORMAT(Bis,'%a %H:%i') AS Bis,
+                C AS Ist,
+                DATE_FORMAT(Von,'%W %d %M') As Tag,
+                Soll,
+                Dienst.DienstID
+             FROM Dienst,SchichtUebersicht
+             WHERE Von >= ? and Von < ? and Dienst.DienstID=SchichtUebersicht.DienstID $sql_helferlevel $sql_dienst
+             ORDER BY Was,Von";
+
+    $types  = "ss";
+    $params = [$Von, $Bis];
+    if ($HelferLevel != -1) { $types .= "i"; $params[] = $HelferLevel; }
+    if ($DienstID   != -1) { $types .= "i"; $params[] = $DienstID; }
+
+    $stmt = stmt_prepare_and_execute($db_link, $sql, $types, ...$params);
+    $result = mysqli_stmt_get_result($stmt);
+    mysqli_stmt_close($stmt);
+    if (!$result) { error_log("AlleSchichtenImZeitBereich Fehler"); }
+    return $result ?: null;
+}
+
+function oldAlleSchichtenImZeitbereich($db_link, $Von, $Bis, $HelferLevel = -1)#stmt
+{
+    //debug only 
+    //error_log("AlleSchichtenImZeitbereich Abfrage:  $Von, $Bis, $HelferLevel");
     // SchichtID, Was, Ab, Bis, Ist, Tag, Soll - Ist und Soll sind die HelferStunden
     # bei -1 nicht in Suche einschliessen
     $sql_helferlevel = ($HelferLevel == -1)
@@ -891,39 +995,273 @@ function GetDienste($db_link)
     if (!$result) {error_log("Keine Dienste gefunden"); return false;}
     return $result;
 }
-
-function GetDiensteChilds($db_link, $DienstID)#stmt2
+function GetDiensteChildren($db_link, $DienstID)#stmt2
 {
-    $sql = "SELECT DienstID, Was, Wo, Info, Leiter FROM Dienst where ElternDienstID=? ORDER BY Was";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $DienstID);
-    if (!$stmt) {error_log("Fehler in GetDiensteChilds"); return false;}
+    // $DienstID NULL anderes Queryformat
+    if ($DienstID === null) {
+        global $debug;
+        //$debug=1;
+        $ElternDienstQuery = "IS NULL";
+        $sql = "SELECT DienstID, Was, Wo, Info, Leiter, HelferLevel FROM Dienst where ElternDienstID $ElternDienstQuery ORDER BY Was";
+        $stmt = stmt_prepare_and_execute($db_link, $sql);
+    } else {
+        $ElternDienstQuery = " = ?";
+        $sql = "SELECT DienstID, Was, Wo, Info, Leiter, HelferLevel FROM Dienst where ElternDienstID $ElternDienstQuery ORDER BY Was";
+        $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $DienstID);
+    }
+
+    if (!$stmt) {error_log("Fehler in GetDiensteChildren"); return false;}
     $result = mysqli_stmt_get_result($stmt);
     return $result;
 }
 
 
-function ChangeDienst($db_link, $DienstID, $Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel)#stmt2
+function ChangeDienst($db_link, $DienstID, $Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel)
 {
-    $sql = "UPDATE Dienst SET Was=?, Wo=?, Info=?, Leiter=?, ElternDienstID=?, HelferLevel=?  where DienstID=?";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "sssiiii",$Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel, $DienstID);
-    if (!$stmt) {error_log("Fehler in ChangeDienst"); return false;}
-    $result = mysqli_stmt_affected_rows($stmt);
-    return $result;
+    // Gruppe normalisieren: leerer String oder 0 -> NULL (Top-Level)
+    $ElternDienstID = (!empty($Gruppe) && (int)$Gruppe > 0) ? (int)$Gruppe : null;
+
+    // 1. Alten Zustand holen
+    $sqlAlt = "SELECT ElternDienstID, DienstBaumPfad FROM Dienst WHERE DienstID = ?";
+    $stmtAlt = stmt_prepare_and_execute($db_link, $sqlAlt, "i", $DienstID);
+    if (!$stmtAlt) {
+        error_log("Fehler in ChangeDienst (Alt-Daten lesen): " . mysqli_error($db_link));
+        return false;
+    }
+    $rowAlt = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtAlt));
+    $alteElternID = $rowAlt['ElternDienstID'];
+    $eigenerPfad  = $rowAlt['DienstBaumPfad'] ?? null;
+
+    // Pfad aus DB ungültig oder leer -> neu aufbauen
+    if (empty($eigenerPfad) || $eigenerPfad[0] !== '/') {
+        $eigenerPfad = _SetzeDienstPfad($db_link, $DienstID, $alteElternID);
+        if ($eigenerPfad === false) {
+            error_log("ChangeDienst: Pfad für Dienst $DienstID konnte nicht gebaut werden.");
+            return false;
+        }
+    }
+
+    // 2. Zyklus-Prüfung (nur wenn Elterndienst gesetzt)
+    if ($ElternDienstID !== null) {
+        if ($ElternDienstID === $DienstID) {
+            error_log("ChangeDienst: Dienst $DienstID kann nicht sein eigener Elterndienst sein.");
+            return false;
+        }
+        $sqlZyklus = "SELECT COUNT(*) as n FROM Dienst WHERE DienstID = ? AND DienstBaumPfad LIKE ?";
+        $stmtZ = stmt_prepare_and_execute($db_link, $sqlZyklus, "is", $ElternDienstID, $eigenerPfad . '%');
+        $rowZ = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtZ));
+        if (($rowZ['n'] ?? 0) > 0) {
+            error_log("ChangeDienst: Zyklus verhindert — Dienst $ElternDienstID ist Nachfahre von $DienstID.");
+            return false;
+        }
+    }
+
+    // 3. Basis-Update aller Felder
+    $sql = "UPDATE Dienst SET Was=?, Wo=?, Info=?, Leiter=?, ElternDienstID=?, HelferLevel=? WHERE DienstID=?";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "sssiiii", $Was, $Wo, $Info, $Leiter, $ElternDienstID, $HelferLevel, $DienstID);
+    if (!$stmt) {
+        error_log("Fehler in ChangeDienst (Update): " . mysqli_error($db_link));
+        return false;
+    }
+
+    // 4. Pfad aktualisieren wenn ElternDienstID sich geändert hat
+    if ($alteElternID != $ElternDienstID) {
+        $neuerPfad = _SetzeDienstPfad($db_link, $DienstID, $ElternDienstID);
+        if ($neuerPfad === false) {
+            error_log("Fehler in ChangeDienst (_SetzeDienstPfad): DienstID=$DienstID ElternDienstID=$ElternDienstID");
+            return false;
+        }
+    }
+
+    return true;
 }
 
-function NewDienst($db_link, $DienstID, $Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel)#stmt2
+function RebuildAlleDienstPfade($db_link)
 {
+    $bericht = ['gefixt' => [], 'ok' => 0];
 
-//    $DienstID 
+    // Alle Dienste holen
+    $sql = "SELECT DienstID, ElternDienstID, DienstBaumPfad FROM Dienst";
+    $stmt = stmt_prepare_and_execute($db_link, $sql);
+    if (!$stmt) {
+        error_log("RebuildAlleDienstPfade: Fehler beim Lesen aller Dienste");
+        return false;
+    }
+    $result = mysqli_stmt_get_result($stmt);
+
+    // Alle Dienste einmal laden, key DienstID
+    $dienste = [];
+    while ($row = mysqli_fetch_assoc($result)) {
+        $id = (int)$row['DienstID'];
+        $dienste[$id] = [
+            'eltern_id'      => $row['ElternDienstID'] !== null ? (int)$row['ElternDienstID'] : null,
+            'orig_eltern_id' => $row['ElternDienstID'] !== null ? (int)$row['ElternDienstID'] : null,
+            'alter_pfad'     => $row['DienstBaumPfad'],
+        ];
+    }
+
+    $neuePfade = []; // id => bereits berechneter neuer Pfad (Memoisierung)
+
+    // Klettert von $startID die Elternkette hoch, bis ein bekannter Pfad, ein
+    // Top-Level-Dienst, oder ein Zyklus erreicht ist. Baut den Pfad danach von
+    // oben (Wurzel) nach unten ($startID) wieder auf.
+    $loesePfad = function ($startID) use (&$dienste, &$neuePfade, &$bericht) {
+        $kette   = [];  // ids auf dem Weg nach oben, in Reihenfolge
+        $inKette = [];  // dieselben ids als Set, für Zyklus-Prüfung
+        $aktuelle = $startID;
+        $basisPfad = '/';
+
+        while (true) {
+            if (isset($neuePfade[$aktuelle])) {
+                $basisPfad = $neuePfade[$aktuelle];
+                break;
+            }
+       if (isset($inKette[$aktuelle])) {
+           // Zyklus gefunden. Der Teil von $kette ab der ersten Position von
+           // $aktuelle ist der eigentliche Zyklus; alles davor ist nur ein
+           // Zulauf (zeigt auf den Zyklus, ist aber selbst nicht Teil davon)
+           // und bleibt unverändert.
+           $zyklusStart = array_search($aktuelle, $kette);
+           $zyklusMitglieder = array_slice($kette, $zyklusStart);
+
+           $meldung = "Zyklus in der Eltern-Kette gefunden: Dienst(e) "
+                    . implode(', ', $zyklusMitglieder)
+                    . " — alle auf Top-Level zurückgesetzt.";
+           error_log("RebuildAlleDienstPfade: WARNUNG $meldung");
+           $bericht['gefixt'][] = $meldung;
+
+           // Jedes Zyklus-Mitglied wird unabhängig und auf einmal Top-Level -
+           // ElternDienstID und Pfad zusammen, damit nichts auseinanderlaufen kann
+           foreach ($zyklusMitglieder as $mitglied) {
+               $dienste[$mitglied]['eltern_id'] = null;
+               $neuePfade[$mitglied] = '/' . $mitglied . '/';
+           }
+           // Falls $startID nur ein Zulauf zum Zyklus war (nicht Teil davon),
+           // bauen wir von hier normal weiter - dafür kürzen wir $kette auf den
+           // Zulauf-Teil und nehmen den (jetzt gesetzten) Pfad des ersten
+           // Zyklus-Mitglieds als Basis.
+           $kette = array_slice($kette, 0, $zyklusStart);
+           $basisPfad = $neuePfade[$aktuelle] ?? '/';
+           break;
+       }
+
+            $kette[] = $aktuelle;
+            $inKette[$aktuelle] = true;
+
+            $elternID = $dienste[$aktuelle]['eltern_id'];
+            if ($elternID === null || !isset($dienste[$elternID])) {
+                if ($elternID !== null) {
+                    $meldung = "Dienst $aktuelle: Elterndienst $elternID existiert nicht — auf Top-Level zurückgesetzt.";
+                    error_log("RebuildAlleDienstPfade: WARNUNG $meldung");
+                    $bericht['gefixt'][] = $meldung;
+                    $dienste[$aktuelle]['eltern_id'] = null;
+                }
+                $basisPfad = '/';
+                break;
+            }
+            $aktuelle = $elternID;
+        }
+
+        $pfad = $basisPfad;
+        foreach (array_reverse($kette) as $x) {
+            $pfad = $pfad . $x . '/';
+            $neuePfade[$x] = $pfad;
+        }
+        return $neuePfade[$startID];
+    };
+
+    foreach (array_keys($dienste) as $id) {
+        $neuerPfad = $loesePfad($id);
+        $eintrag = $dienste[$id]; // aktueller Zustand, evtl. durch Zyklus-Fix verändert
+
+        if ($eintrag['eltern_id'] !== $eintrag['orig_eltern_id']) {
+            $sqlFix = "UPDATE Dienst SET ElternDienstID = ? WHERE DienstID = ?";
+            stmt_prepare_and_execute($db_link, $sqlFix, "ii", $eintrag['eltern_id'], $id);
+        }
+
+        if ($neuerPfad !== $eintrag['alter_pfad']) {
+            $sqlUpdate = "UPDATE Dienst SET DienstBaumPfad = ? WHERE DienstID = ?";
+            stmt_prepare_and_execute($db_link, $sqlUpdate, "si", $neuerPfad, $id);
+            $meldung = "Dienst $id: '{$eintrag['alter_pfad']}' → '$neuerPfad'";
+            error_log("RebuildAlleDienstPfade: gefixt $meldung");
+            $bericht['gefixt'][] = $meldung;
+        } else {
+            $bericht['ok']++;
+        }
+    }
+
+    return $bericht;
+}
+
+/**
+ * Berechnet und setzt DienstBaumPfad für einen bestehenden Dienst anhand
+ * seiner ElternDienstID. Aktualisiert bei einer Pfad-Änderung auch alle
+ * Nachfahren (Kinder, Enkel, ...), damit DienstBaumPfad immer konsistent bleibt.
+ *
+ * Voraussetzung: der Dienst mit $DienstID existiert bereits in der DB
+ * (wird also NACH einem INSERT oder zusammen mit einem UPDATE von
+ * ElternDienstID aufgerufen, nie vorher).
+ *
+ * Gibt den neu gesetzten Pfad zurück, oder false bei Fehler.
+ */
+function _SetzeDienstPfad($db_link, $DienstID, $ElternDienstID)
+{
+    // 1. Alten Pfad merken (für die Nachfahren-Korrektur unten)
+    $sqlAlt = "SELECT DienstBaumPfad FROM Dienst WHERE DienstID = ?";
+    $stmtAlt = stmt_prepare_and_execute($db_link, $sqlAlt, "i", $DienstID);
+    if (!$stmtAlt) { error_log("Fehler in _SetzeDienstPfad (Alt-Pfad lesen)"); return false; }
+    $rowAlt = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtAlt));
+    $alterPfad = $rowAlt['DienstBaumPfad'] ?? null;
+
+    // 2. Eltern-Pfad ermitteln (leer, wenn Top-Level)
+    $elternPfad = '/';
+    if ($ElternDienstID !== null && $ElternDienstID !== '' && (int)$ElternDienstID > 0) {
+        $sqlEltern = "SELECT DienstBaumPfad FROM Dienst WHERE DienstID = ?";
+        $stmtEltern = stmt_prepare_and_execute($db_link, $sqlEltern, "i", $ElternDienstID);
+        if (!$stmtEltern) { error_log("Fehler in _SetzeDienstPfad (Eltern-Pfad lesen)"); return false; }
+        $rowEltern = mysqli_fetch_assoc(mysqli_stmt_get_result($stmtEltern));
+        if (!$rowEltern) {
+            error_log("_SetzeDienstPfad: Elterndienst $ElternDienstID nicht gefunden (für Dienst $DienstID)");
+            return false;
+        }
+        $elternPfad = $rowEltern['DienstBaumPfad'] ?? '/';
+    }
+
+    // 3. Eigenen neuen Pfad setzen
+    $neuerPfad = $elternPfad . $DienstID . '/';
+    $sqlSelf = "UPDATE Dienst SET DienstBaumPfad = ? WHERE DienstID = ?";
+    $stmtSelf = stmt_prepare_and_execute($db_link, $sqlSelf, "si", $neuerPfad, $DienstID);
+    if (!$stmtSelf) { error_log("Fehler in _SetzeDienstPfad (Self-Update)"); return false; }
+
+    // 4. Nachfahren korrigieren, falls sich der Pfad-Präfix geändert hat
+    //    (Präfix-Ersetzung: alle Dienste, deren Pfad mit dem alten Pfad beginnt)
+    //    Nur durchführen, wenn der Pfad gültig mit / beginnt
+    if (!empty($alterPfad) && $alterPfad[0] === '/' && $alterPfad !== $neuerPfad) {
+        $sqlKinder = "UPDATE Dienst
+                      SET DienstBaumPfad = REPLACE(DienstBaumPfad, ?, ?)
+                      WHERE DienstBaumPfad LIKE ? AND DienstID != ?";
+        $likeAlt = $alterPfad . '%';
+        $stmtKinder = stmt_prepare_and_execute($db_link, $sqlKinder, "sssi", $alterPfad, $neuerPfad, $likeAlt, $DienstID);
+        if (!$stmtKinder) { error_log("Fehler in _SetzeDienstPfad (Nachfahren-Update)"); return false; }
+    }
+
+    return $neuerPfad;
+}
+
+function NewDienst($db_link, $Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel)#stmt2
+{
 //    $Was         //Name des Dienstes
 //    $Wo          //Ort
 //    $Info        //vollstaendige Beschreibung
 //    $Leiter      // int HelferID des Leiters
-//    $Gruppe      // ??
+//    $Gruppe      // ElternDienstID, NULL/0 = Top-Level-Dienst
 //    $HelferLevel // int (1,2) Teilnehmer oder Dauerhelfer
 
+    // Gruppe normalisieren: leerer String oder 0 -> NULL (Top-Level)
+    $ElternDienstID = (!empty($Gruppe)) ? (int)$Gruppe : null;
+
     $sql = "INSERT INTO Dienst (Was, Wo, Info, Leiter, ElternDienstID, HelferLevel) VALUES (?, ?, ?, ?, ?, ?)";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "sssiii", $Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "sssiii", $Was, $Wo, $Info, $Leiter, $ElternDienstID, $HelferLevel);
 
     $HelferName = $_SESSION["HelferName"] ?? "unbekannt";
     $HelferID   = $_SESSION["HelferID"] ?? 0;
@@ -931,15 +1269,24 @@ function NewDienst($db_link, $DienstID, $Was, $Wo, $Info, $Leiter, $Gruppe, $Hel
     if (!$stmt) {
         $err = mysqli_error($db_link);
         echo "Fehler NewDienst: $err";
-        $full_sql = debug_sql($sql, "sssiii", [$Was, $Wo, $Info, $Leiter, $Gruppe, $HelferLevel]);
+        $full_sql = debug_sql($sql, "sssiii", [$Was, $Wo, $Info, $Leiter, $ElternDienstID, $HelferLevel]);
         error_log(date('Y-m-d H:i') . "  NeueSchicht: $HelferName (ID:$HelferID) konnte Schicht nicht anlegen mit Anfrage $full_sql Grund: $err\n", 3, LOGFILE);
         die();
-    } else {
-        error_log(date('Y-m-d H:i') . "  NeueSchicht: $HelferName (HelferID:$HelferID) hat Dienst angelegt mit Was: $Was Wo: $Wo Info: $Info Leiter: $Leiter Gruppe: $Gruppe HelferLevel: $HelferLevel\n", 3, LOGFILE);
     }
-    $result = mysqli_stmt_affected_rows($stmt);
-    return $result;
+
+    $newDienstID = mysqli_insert_id($db_link);
+
+    // Pfad setzen (DienstID existiert jetzt, also kann _SetzeDienstPfad sie verwenden)
+    $neuerPfad = _SetzeDienstPfad($db_link, $newDienstID, $ElternDienstID);
+    if ($neuerPfad === false) {
+        error_log(date('Y-m-d H:i') . "  NewDienst: Dienst $newDienstID angelegt, aber DienstBaumPfad konnte nicht gesetzt werden.\n", 3, LOGFILE);
+    }
+
+    error_log(date('Y-m-d H:i') . "  NeueSchicht: $HelferName (HelferID:$HelferID) hat Dienst $newDienstID angelegt mit Was: $Was Wo: $Wo Info: $Info Leiter: $Leiter Gruppe: $ElternDienstID HelferLevel: $HelferLevel\n", 3, LOGFILE);
+
+    return $newDienstID;
 }
+
 
 function DeleteDienst($db_link, $DienstID, $Rekursiv)#stmt2
 {
@@ -1033,7 +1380,7 @@ function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
         UPDATE Schicht 
         SET Von=?, Bis=?, Soll=?, Dauer=?
         WHERE SchichtID=?";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssiii", $Von, $Bis, $Soll, $Dauer, $SchichtID);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssisi", $Von, $Bis, $Soll, $Dauer, $SchichtID);
     if (!$stmt) {error_log("Fehler in ChangeSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
     return $result;
@@ -1042,12 +1389,12 @@ function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
 function NewSchicht($db_link, $DienstID, $Von, $Bis, $Soll, $Dauer, $HelferName) #stmt2
 {
     $sql = "INSERT INTO Schicht (DienstID, Von, Bis, Soll, Dauer) values (?,?,?,?,?)";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "issii", $DienstID, $Von, $Bis, $Soll, $Dauer);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "issis", $DienstID, $Von, $Bis, $Soll, $Dauer);
     if (!$stmt) {error_log("Fehler in NewSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
     if ($result != 1) {
         echo "Keine Schicht erstellt";
-        $full_sql = debug_sql($sql, "issii", [ $DienstID, $Von, $Bis, $Soll, $Dauer ]);
+        $full_sql = debug_sql($sql, "issis", [ $DienstID, $Von, $Bis, $Soll, $Dauer ]);
         $err = "  NeueSchicht: $HelferName   konnte Schicht nicht angelegt mit $full_sql  \n";
         error_log(date('Y-m-d H:i') . $err , 3, LOGFILE);
         die('Ungueltige Abfrage: ' . $err);
@@ -1238,6 +1585,111 @@ function AnzahlDiensteMitHelferLevel($db_link, $level) {
     return $anzahl;
 }
 
+/**
+ * Liefert die Kette der Vorfahren-Dienste (inkl. sich selbst) von der Wurzel
+ * bis zu $DienstID, als Array [DienstID => Was], in Reihenfolge Wurzel zuerst.
+ * Nutzt DienstBaumPfad um die IDs zu extrahieren, macht dann eine einzige
+ * Abfrage für alle Namen (kein rekursives Nachladen nötig).
+ */
+function GetDienstPfadKette($db_link, $DienstID)
+{
+    if ($DienstID === null || (int)$DienstID <= 0) {
+        return []; // Top-Level -- kein Pfad
+    }
+
+    $sql = "SELECT DienstBaumPfad FROM Dienst WHERE DienstID = ?";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $DienstID);
+    if (!$stmt) { return []; }
+    $row = mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+    $pfad = $row['DienstBaumPfad'] ?? null;
+    if (empty($pfad) || $pfad[0] !== '/') {
+        error_log("GetDienstPfadKette: ungültiger Pfad für Dienst $DienstID");
+        return [];
+    }
+
+    // "/5/12/34/" -> [5, 12, 34]
+    $ids = array_filter(explode('/', $pfad), fn($x) => $x !== '');
+    $ids = array_map('intval', $ids);
+    if (empty($ids)) { return []; }
+
+    $platzhalter = implode(',', array_fill(0, count($ids), '?'));
+    $sqlNamen = "SELECT DienstID, Was FROM Dienst WHERE DienstID IN ($platzhalter)";
+    $stmtNamen = stmt_prepare_and_execute($db_link, $sqlNamen, str_repeat('i', count($ids)), ...$ids);
+    if (!$stmtNamen) { return []; }
+    $resultNamen = mysqli_stmt_get_result($stmtNamen);
+
+    $namenNachID = [];
+    while ($r = mysqli_fetch_assoc($resultNamen)) {
+        $namenNachID[(int)$r['DienstID']] = $r['Was'];
+    }
+
+    // Reihenfolge aus dem Pfad beibehalten (SQL IN() garantiert keine Reihenfolge)
+    $kette = [];
+    foreach ($ids as $id) {
+        if (isset($namenNachID[$id])) {
+            $kette[$id] = $namenNachID[$id];
+        }
+    }
+    return $kette;
+}
+
+/**
+ * Liefert alle Dienste AUSSER $DienstID selbst und dessen Nachfahren -- als
+ * Auswahl-Kandidaten für den Elterndienst. Verhindert Zyklen schon in der
+ * Anzeige (zusätzlich zur harten Prüfung in ChangeDienst()).
+ * $DienstID = null -> alle Dienste (z.B. beim Anlegen eines komplett neuen
+ * Dienstes, wo "sich selbst ausschließen" noch nicht relevant ist).
+ */
+function GetDiensteAuswahlbar($db_link, $DienstID = null)
+{
+    if ($DienstID === null || (int)$DienstID <= 0) {
+        $stmt = stmt_prepare_and_execute($db_link, "SELECT DienstID, Was FROM Dienst ORDER BY Was");
+    } else {
+        $sql = "SELECT DienstID, Was FROM Dienst
+                WHERE DienstID != ?
+                  AND DienstBaumPfad NOT LIKE (SELECT CONCAT(D2.DienstBaumPfad, '%') FROM Dienst D2 WHERE D2.DienstID = ?)
+                ORDER BY Was";
+        $stmt = stmt_prepare_and_execute($db_link, $sql, "ii", $DienstID, $DienstID);
+    }
+    if (!$stmt) { error_log("Fehler in GetDiensteAuswahlbar"); return null; }
+    return mysqli_stmt_get_result($stmt);
+}
+
+/**
+ * Liefert einen Dienst und ALLE seine Nachfahren (kompletter Teilbaum) in
+ * einer Abfrage. $DienstID = null -> ganzer Baum (alle Dienste).
+ * Sortiert Eltern-vor-Kind über die Pfadlänge.
+ */
+function GetDienstTeilbaum($db_link, $DienstID)
+{
+    if ($DienstID === null || (int)$DienstID <= 0) {
+        $sql = "SELECT DienstID, Was, Wo, Info, Leiter, ElternDienstID, HelferLevel, DienstBaumPfad
+                FROM Dienst ORDER BY LENGTH(DienstBaumPfad), Was
+                LIMIT " . DIENST_TEILBAUM_LIMIT;
+        $stmt = stmt_prepare_and_execute($db_link, $sql);
+    } else {
+        $sql = "SELECT DienstID, Was, Wo, Info, Leiter, ElternDienstID, HelferLevel, DienstBaumPfad
+                FROM Dienst
+                WHERE DienstBaumPfad LIKE (SELECT CONCAT(D2.DienstBaumPfad, '%') FROM Dienst D2 WHERE D2.DienstID = ?)
+                ORDER BY LENGTH(DienstBaumPfad), Was
+                LIMIT " . DIENST_TEILBAUM_LIMIT;
+        $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $DienstID);
+    }
+    if (!$stmt) { error_log("Fehler in GetDienstTeilbaum"); return null; }
+    return mysqli_stmt_get_result($stmt);
+}
+
+function GetEinzelDienst($db_link, $DienstID)
+{
+    $sql = "SELECT DienstID, Was, Wo, Info, Leiter, ElternDienstID, HelferLevel, DienstBaumPfad
+            FROM Dienst WHERE DienstID = ?";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $DienstID);
+    if (!$stmt) { return null; }
+    return mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
+}
+
+
+
 
 
 // falls man sowohl nach HelferLevel, Beschreibung oder Invite Code filtern will
@@ -1257,4 +1709,5 @@ function AnzahlDiensteMitHelferLevel($db_link, $level) {
 //
 //    return $result->fetch_assoc();
 //}
+
 
