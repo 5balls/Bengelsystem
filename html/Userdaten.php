@@ -33,19 +33,53 @@ if (isset($_POST['change'])) {
     $HelferNewPasswort  = $_POST['helfer-newpasswort'];
     if (empty($messages)) {
         // Helferdaten Ändern
-        HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, $HelferNewPasswort, $HelferID);
-        header("Location: " . $_SERVER['PHP_SELF']); // reload as GET
-        exit;
-    }
-} else {
-        echo $header;
-        // Fehlermeldungen ausgeben:
-        echo '<div class="error"><ul>';
-        foreach ($messages as $message) {
-            echo '<li>' . htmlspecialchars($message) . '</li>';
+        if(AUTH_TYPE === "LDAP"){
+            $conn = LdapAnonymousBind();
+            $dn = LdapGetUserDN($conn, $_SESSION['HelferEmail']);
+            if(!LdapRebindAsCurrentUser($conn,$_SESSION['HelferEmail'],$_SESSION['HelferPasswort'])){
+                $messages[] = "Interner Serverfehler  (konnte keinen LDAP Bind auf den Benutzer durchführen, sagt Florian Bescheid!)";
+            }
+            else {
+                // Set Password if changed:
+                if($HelferNewPasswort != $_SESSION['HelferPasswort']){
+                    if($HelferNewPasswort != ''){
+                        $hash = "{SHA}" . base64_encode(sha1($HelferNewPasswort, TRUE));
+                        if(!ldap_mod_replace($conn, $dn, array('userPassword' => $hash))){
+                            $messages[] = "Konnte Passwort nicht ändern!";
+                        }
+                    }
+                }
+                $newvals = array(
+                        'displayName' => $HelferName,
+                        'mail' => $HelferEmail,
+                        'telephoneNumber' => $HelferHandy
+                        );
+                if(!ldap_mod_replace($conn, $dn, $newvals)){
+                    $messages[] = "Konnte mindestens einen Wert nicht ändern!";
+                }
+            }
         }
-        echo '</ul></div>';
+        try {
+            HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, $HelferNewPasswort, $HelferID);
+        } catch (mysqli_sql_exception $e) {
+            $messages[] = "Datenbank Fehler:  " . $e->getMessage();
+        }
+        if (empty($messages)) {
+            header("Location: " . $_SERVER['PHP_SELF']); // reload as GET
+            exit;
+        }
+    }
 }
+ 
+    echo $header;
+    // Fehlermeldungen ausgeben:
+    echo '<div class="error"><ul>';
+    foreach ($messages as $message) {
+        echo '<li>' . htmlspecialchars($message) . '</li>';
+    }
+    echo '</ul></div>';
+
+
 
 ////////////////////////////////////////////////////////////////
 // Helferdate holen
@@ -93,7 +127,7 @@ if($HelferName == $HelferEmail) {$isHidden="display: none";}
 
 $emailandpass =  <<<emailandpass
         <tr style="$isHidden">
-          <td>Loginname (Email). Achtung, danach login nur noch mit neuem Namen möglich!</td></tr><tr style="$isHidden"><td>
+          <td>Email (kann nur für einen Account verwendet werden)</td></tr><tr style="$isHidden"><td>
           <input name="helfer-email" type="email " value="$HelferEmailHTML" required  style="$isHidden">
           </td>
         </tr>

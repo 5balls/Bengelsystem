@@ -83,4 +83,13 @@ font-size: 3px;
 height: 2px;
 }
 
+.header img {
+  float: left;
+  width: min(100px,50vw);
+  height: min(100px,50vw);
+}
 
+.header h1 {
+  position: relative;
+  height: 100px
+}

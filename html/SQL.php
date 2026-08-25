@@ -67,10 +67,10 @@ function CreateHelfer($db_link, $HelferName, $HelferEmail, $HelferHandy, $Helfer
     $PasswortHash = password_hash($HelferPasswort, PASSWORD_DEFAULT);
 
     // Prepared Statement erstellen
-    $sql = "INSERT INTO Helfer (Name, Email, Handy, Status, BildFile, DoReport, Passwort, HelferLevel)
-            VALUES (?, ?, ?, 1, '', 0, ?, ?)";
+    $sql = "INSERT INTO Helfer (Name, Email, Handy, Status, BildFile, DoReport, Passwort, HelferLevel, Updated)
+            VALUES (?, ?, ?, 1, '', 0, ?, ?, FROM_UNIXTIME(?))";
 
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssssi", $HelferName, $HelferEmail, $HelferHandy, $PasswortHash, $HelferLevel);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssssii", $HelferName, $HelferEmail, $HelferHandy, $PasswortHash, $HelferLevel, time());
     if (!$stmt) { error_log("Fehler in CreateHelfer, kein stmt"); return null; }
     $result = mysqli_stmt_affected_rows($stmt);
     if ($result !== 1) { error_log("CreateHelfer: Unerwartete Anzahl betroffener Zeilen ($result)"); }
@@ -97,38 +97,259 @@ function HelferIstVorhanden($db_link, $Email)#stmt
     return $zeile['Anzahl'] ?? 0;
 }
 
+function HelferdatenLetzteAenderung($db_link, $Email)
+{
+    $sql = "SELECT UNIX_TIMESTAMP(Updated) as ts FROM Helfer WHERE Email = ?";
+    $stmt = mysqli_prepare($db_link, $sql);
+    if (!$stmt) {
+        error_log("Fehler beim Vorbereiten des Statements: " . mysqli_error($db_link));
+        return false;
+    }
+    mysqli_stmt_bind_param($stmt, "s", $Email);
+    mysqli_stmt_execute($stmt);
+
+    $result = mysqli_stmt_get_result($stmt);
+    $zeile = mysqli_fetch_array($result, MYSQLI_ASSOC);
+    mysqli_stmt_close($stmt);
+    return $zeile['ts'];
+}
+
+
+function LdapAnonymousBind(){
+    $conn = ldap_connect(LDAP_SERVER);
+    if(!$conn){
+        error_log("Fehler in LdapAnonymousBind, kein Aufbau von LDAP Verbindung zu Server");
+        die("Login internes Serverproblem");
+    }
+    ldap_set_option($conn, LDAP_OPT_PROTOCOL_VERSION, 3);
+    // Bind to binduser:
+    $bind = ldap_bind($conn, LDAP_BINDUSER, LDAP_BINDPASSWD);
+    if(!$bind){
+        error_log("Fehler in LdapAnonymousBind, kein anonymer LDAP bind");
+        die("Login internes Serverproblem");
+    }
+    return $conn;
+}
+
+function LdapGetUserDN($conn,$cn){
+    $retarray = array();
+    $ldap_filter = "(&".LDAP_USERS_FILTER."(|(cn=".$cn.")(mail=".$cn.")))";
+    $ldap_search = ldap_search($conn, LDAP_USERS_CN, $ldap_filter, array('cn'));
+    $entry = ldap_first_entry($conn, $ldap_search);
+    do {
+        $dn = ldap_get_dn($conn, $entry);
+        return $dn;
+    } while ($entry = ldap_next_entry($conn, $entry));
+    return None;
+}
+
+function LdapRebindAsCurrentUser($conn,$cn,$password){
+    $dn = LdapGetUserDN($conn,$cn);
+    if(ldap_bind($conn, $dn, $password))
+        return true;
+    else
+        return false;
+}
+
+
+function LdapGetUserLoginNames($conn){
+    $retarray = array();
+    $ldap_search = ldap_search($conn, LDAP_USERS_CN, LDAP_USERS_FILTER, array('cn'));
+    $entry = ldap_first_entry($conn, $ldap_search);
+    do {
+        $dn = ldap_get_dn($conn, $entry);
+        $cn = ldap_get_values($conn, $entry, 'cn');
+        $retarray[] = $cn[0];
+    } while ($entry = ldap_next_entry($conn, $entry));
+    return $retarray;
+}
+
+function LdapGetUserEmails($conn){
+    $retarray = array();
+    $ldap_search = ldap_search($conn, LDAP_USERS_CN, LDAP_USERS_FILTER, array('mail','cn'));
+    $entry = ldap_first_entry($conn, $ldap_search);
+    do {
+        $dn = ldap_get_dn($conn, $entry);
+        $mails = ldap_get_values($conn, $entry, 'mail');
+        $cn = ldap_get_values($conn, $entry, 'cn');
+        for ($i=0; $i < $mails["count"]; $i++) {
+            $retarray[] = [$mails[$i],$cn[0]];
+        }
+    } while ($entry = ldap_next_entry($conn, $entry));
+    return $retarray;
+}
+
+function LdapGetUserMultipleAttributes($conn, $cn, $attributes){
+    $retarray = array();
+    $ldap_search = ldap_search($conn, 'cn='.$cn.','.LDAP_USERS_CN, LDAP_USERS_FILTER, $attributes);
+    error_log($cn);
+    error_log(LDAP_USERS_CN);
+    error_log(LDAP_USERS_FILTER);
+    error_log(var_export($attributes,true));
+    $entry = ldap_first_entry($conn, $ldap_search);
+    do {
+        $dn = ldap_get_dn($conn, $entry);
+        $attrvals = array();
+        foreach($attributes as $attribute){
+            $val = ldap_get_values($conn, $entry, $attribute);
+            $attrvals[$attribute] = $val[0];
+        }
+        $retarray[] = $attrvals;
+    } while ($entry = ldap_next_entry($conn, $entry));
+    return $retarray;
+}
+
+function LdapGetUserGroups($conn,$cn){
+    $retarray = array();
+    $ldap_search_base = "ou=Groups,dc=jonglaria,dc=org";
+    $ldap_filter = "(&(objectClass=*)(member=cn=".$cn.",".LDAP_USERS_CN."))";
+    $ldap_read = ldap_search($conn, $ldap_search_base, $ldap_filter);
+    $entry = ldap_first_entry($conn, $ldap_read);
+    if(!$entry) return $retarray;
+    do {
+        $cn = ldap_get_values($conn, $entry, 'cn');
+        $retarray[] = $cn[0];
+    } while ($entry = ldap_next_entry($conn, $entry));
+    return $retarray;
+}
+
+function GetHelferID($db_link, $Email){
+    // Get ID:
+    $sql = "SELECT HelferID FROM Helfer WHERE Email = ?";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "s", $Email);
+    if (!$stmt) { error_log("Fehler in HelferLogin, kein stmt"); die('Login ungültige Abfrage');}
+    $result = mysqli_stmt_get_result($stmt);
+    while ($zeile = mysqli_fetch_array($result, MYSQLI_ASSOC)) {
+        return $zeile['HelferID'];
+    }
+    return null;
+}
+
+
 
 //TODO: pruefen, ob Helfer bereits eingeloggt
 function HelferLogin($db_link, $HelferEmail, $HelferPasswort, $HelferStatus)#stmt
 {
-    $sql = "SELECT HelferID, Admin, Name, Passwort, HelferLevel FROM Helfer WHERE Email = ?";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "s", $HelferEmail);
-    if (!$stmt) { error_log("Fehler in HelferLogin, kein stmt"); die('Login ungültige Abfrage');}
-    $result = mysqli_stmt_get_result($stmt);
-
-    while ($zeile = mysqli_fetch_array($result, MYSQLI_ASSOC)) {
-        $HelferPasswort = "€" . $HelferPasswort . "ß";
-
-        if (password_verify($HelferPasswort, $zeile['Passwort'])) {
-            $_SESSION["HelferID"] = $zeile['HelferID'];
-            $_SESSION["HelferName"] = $zeile['Name'];
-            $_SESSION["HelferEmail"] = $HelferEmail;
-            $_SESSION["AdminStatus"] = $zeile['Admin'];
-            if( $_SESSION["AdminStatus"] == 1) {
-                $_SESSION["AdminID"] = $zeile['HelferID'];
+    if(AUTH_TYPE === "LDAP"){
+        $conn = LdapAnonymousBind();
+        $emails = LdapGetUserEmails($conn);
+        $could_auth = false;
+        foreach($emails as $email){
+            // Email
+            if(strtolower($email[0]) === strtolower($HelferEmail)){
+                $user_groups = LdapGetUserGroups($conn,$email[1]);
+                if(!LdapRebindAsCurrentUser($conn,$email[1],$HelferPasswort)) return 0;
+                $could_auth = true;
+                break;
             }
-            $_SESSION["HelferLevel"] = $zeile['HelferLevel'];
-
-            mysqli_stmt_close($stmt);
-            return 1;
-        } else {
-            echo "Falsches Passwort<br>";
-            mysqli_stmt_close($stmt);
-            return 0;
+            // alternatively user name
+            else if($email[1] === $HelferEmail){
+                $user_groups = LdapGetUserGroups($conn,$email[1]);
+                if(!LdapRebindAsCurrentUser($conn,$email[1],$HelferPasswort)) return 0;
+                $HelferEmail = $email[0];
+                $could_auth = true;
+                break;
+            }
         }
+        // If we could legitimate let's fill out the session fields from LDAP
+        if($could_auth){
+            // We keep track of emails for the HelferId only in the database when using LDAP
+            // But first we have to check if the email exists already in the system
+            // Code blatantly stolen from the UrlLogin, we don't really care here about
+            // any other field than email but for convenience we fill it up now:
+            $ldap_attributes = LdapGetUserMultipleAttributes($conn, $email[1], array('mail','displayName','telephoneNumber','modifyTimestamp'));
+            foreach($ldap_attributes as $user_dataset){
+                if(strtolower($user_dataset['mail'])===strtolower($HelferEmail)){
+                    $last_modified = strtotime($user_dataset['modifyTimestamp']);
+                    $HelferName = $user_dataset['displayName'];
+                    if(in_array("conventionorga",$user_groups))
+                        $HelferLevel = 1;
+                    else
+                        $HelferLevel = 2;
+                    if($user_dataset['telephoneNumber'])
+                        $HelferHandy = $user_dataset['telephoneNumber'];
+                    else
+                        $HelferHandy = "";
+                }
+            }
+
+            if (!filter_var($HelferEmail, FILTER_VALIDATE_EMAIL)) {
+                echo  'Problem mit E-Mail-Adresse.';
+                return 0;
+            }
+            // Helfer Anlegen, wenn er nicht existiert
+            if (! HelferIstVorhanden($db_link, $HelferEmail)) {
+                error_log($HelferEmail . " nicht vorhanden, lege an");
+                error_log("CreateHelfer(db_link,$HelferName,$HelferEmail, $HelferHandy,,$HelferLevel);");
+                $db_erg = CreateHelfer($db_link, $HelferName, $HelferEmail, $HelferHandy, "", $HelferLevel);
+                if(in_array("bengeladmins",$user_groups)){
+                    $HelferID = GetHelferID($db_link, $HelferEmail);
+                    HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, "", $HelferID, $HelferLevel, 1);
+                }
+            }
+            if($last_modified > HelferdatenLetzteAenderung($db_link, $HelferEmail)){
+                $HelferID = GetHelferID($db_link,$HelferEmail);
+                if(in_array("bengeladmins",$user_groups)){
+                    HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, "", $HelferID, $HelferLevel, 1);
+                }
+                else{
+                    HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, "", $HelferID, $HelferLevel);
+                }
+            }
+            // Set session data:
+            $sql = "SELECT HelferID, Admin, Name, Passwort, HelferLevel FROM Helfer WHERE Email = ?";
+            $stmt = stmt_prepare_and_execute($db_link, $sql, "s", $HelferEmail);
+            if (!$stmt) { error_log("Fehler in HelferLogin, kein stmt"); die('Login ungültige Abfrage');}
+            $result = mysqli_stmt_get_result($stmt);
+
+            while ($zeile = mysqli_fetch_array($result, MYSQLI_ASSOC)) {
+                $_SESSION["HelferID"] = $zeile['HelferID'];
+                $_SESSION["HelferName"] = $zeile['Name'];
+                $_SESSION["HelferEmail"] = $HelferEmail;
+                $_SESSION["AdminStatus"] = $zeile['Admin'];
+                if( $_SESSION["AdminStatus"] == 1) {
+                    $_SESSION["AdminID"] = $zeile['HelferID'];
+                }
+                $_SESSION["HelferLevel"] = $zeile['HelferLevel'];
+                $_SESSION["HelferPasswort"] = $HelferPasswort;
+
+                mysqli_stmt_close($stmt);
+                return 1;
+            }
+            die("Did not find");
+        }
+        return 0;
     }
-    mysqli_stmt_close($stmt);
-    return 0;
+    else {
+        $sql = "SELECT HelferID, Admin, Name, Passwort, HelferLevel FROM Helfer WHERE Email = ?";
+        $stmt = stmt_prepare_and_execute($db_link, $sql, "s", $HelferEmail);
+        if (!$stmt) { error_log("Fehler in HelferLogin, kein stmt"); die('Login ungültige Abfrage');}
+        $result = mysqli_stmt_get_result($stmt);
+
+        while ($zeile = mysqli_fetch_array($result, MYSQLI_ASSOC)) {
+            $HelferPasswort = "€" . $HelferPasswort . "ß";
+
+            if (password_verify($HelferPasswort, $zeile['Passwort'])) {
+                $_SESSION["HelferID"] = $zeile['HelferID'];
+                $_SESSION["HelferName"] = $zeile['Name'];
+                $_SESSION["HelferEmail"] = $HelferEmail;
+                $_SESSION["AdminStatus"] = $zeile['Admin'];
+                if( $_SESSION["AdminStatus"] == 1) {
+                    $_SESSION["AdminID"] = $zeile['HelferID'];
+                }
+                $_SESSION["HelferLevel"] = $zeile['HelferLevel'];
+
+                mysqli_stmt_close($stmt);
+                return 1;
+            } else {
+                echo "Falsches Passwort<br>";
+                mysqli_stmt_close($stmt);
+                return 0;
+            }
+        }
+        mysqli_stmt_close($stmt);
+        return 0;
+    }
 }
 
 
@@ -169,27 +390,26 @@ function Helferdaten($db_link, $HelferID)#stmt
     return $result;
 }
 
-
-
 function HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, $HelferNewPasswort, $HelferID, $HelferLevel = -1, $HelferIsAdmin = -1, $AdminID = 0)#stmt
 {
     $result = false;
+    $UpdateTime = time();
     if ($HelferLevel == -1) { $HelferLevel = $_SESSION["HelferLevel"]; }
     if ($HelferNewPasswort == "") {
         if ($HelferIsAdmin == -1) {
-            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, HelferLevel = ? WHERE HelferId = ?";
+            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, HelferLevel = ?, Updated = FROM_UNIXTIME(?) WHERE HelferId = ?";
             $stmt = mysqli_prepare($db_link, $sql);
             if (!$stmt) {
                 die("Prepare failed: " . mysqli_error($db_link));
             }
-            mysqli_stmt_bind_param($stmt, "ssssi", $HelferName, $HelferEmail, $HelferHandy, $HelferLevel, $HelferID);
+            mysqli_stmt_bind_param($stmt, "ssssii", $HelferName, $HelferEmail, $HelferHandy, $HelferLevel, $UpdateTime, $HelferID);
         } else {
-            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, Admin = ?, HelferLevel = ? WHERE HelferId = ?";
+            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, Admin = ?, HelferLevel = ?, Updated = FROM_UNIXTIME(?) WHERE HelferId = ?";
             $stmt = mysqli_prepare($db_link, $sql);
             if (!$stmt) {
                 die("Prepare failed: " . mysqli_error($db_link));
             }
-            mysqli_stmt_bind_param($stmt, "ssssii", $HelferName, $HelferEmail, $HelferHandy, $HelferIsAdmin, $HelferLevel, $HelferID);
+            mysqli_stmt_bind_param($stmt, "ssssiii", $HelferName, $HelferEmail, $HelferHandy, $HelferIsAdmin, $HelferLevel, $UpdateTime, $HelferID);
         }
 
         if (!mysqli_stmt_execute($stmt)) {
@@ -208,17 +428,17 @@ function HelferdatenAendern($db_link, $HelferName, $HelferEmail, $HelferHandy, $
         $PasswortHash = password_hash($HelferNewPasswort, PASSWORD_DEFAULT);
 
         if ($HelferIsAdmin == -1) {
-            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, HelferLevel = ?, Passwort = ? WHERE HelferId = ?";
+            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, HelferLevel = ?, Passwort = ?, Updated = FROM_UNIXTIME(?) WHERE HelferId = ?";
             $stmt = mysqli_prepare($db_link, $sql);
             if (!$stmt) {
                 die("Prepare failed: " . mysqli_error($db_link));
             }
-            mysqli_stmt_bind_param($stmt, "sssssi", $HelferName, $HelferEmail, $HelferHandy, $HelferLevel, $PasswortHash, $HelferID);
+            mysqli_stmt_bind_param($stmt, "sssssii", $HelferName, $HelferEmail, $HelferHandy, $HelferLevel, $PasswortHash, $UpdateTime, $HelferID);
         } else {
-            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, HelferLevel = ?, Passwort = ?, Admin = ? WHERE HelferId = ?";
+            $sql = "UPDATE Helfer SET Name = ?, Email = ?, Handy = ?, HelferLevel = ?, Passwort = ?, Admin = ?, Updated = FROM_UNIXTIME(?) WHERE HelferId = ?";
             $stmt = mysqli_prepare($db_link, $sql);
             if (!$stmt) { die("Prepare failed: " . mysqli_error($db_link)); }
-            mysqli_stmt_bind_param($stmt, "ssssssi", $HelferName, $HelferEmail, $HelferHandy, $HelferLevel, $PasswortHash, $HelferIsAdmin, $HelferID);
+            mysqli_stmt_bind_param($stmt, "ssssssii", $HelferName, $HelferEmail, $HelferHandy, $HelferLevel, $PasswortHash, $HelferIsAdmin, $UpdateTime, $HelferID);
         }
 
         if (!mysqli_stmt_execute($stmt)) { die("HelferdatenAendern failed: " . mysqli_stmt_error($stmt)); }
