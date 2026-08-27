@@ -26,7 +26,7 @@ $SchichtID = $_SESSION['SchichtID'] ?? null;
 // ============================================================================
 // POST-Verarbeitung
 // ============================================================================
-HelferLevelAnzeigeCheckPOST($db_link,$ZielHelferID,$AdminStatus,$AdminID);
+HelferLevelAnzeigeCheckPOST($db_link,$HelferID,$AdminStatus,$AdminID);
 if (isset($_POST['ChangeDienst'])) {
     ChangeDienst(
         $db_link, $DienstID,
@@ -182,7 +182,7 @@ mysqli_free_result($db_erg);
 
   <p><noscript><button name="ShowSchichten" value="1">Dienst anzeigen</button></noscript></p>
 
-<?php if ($DienstID): ?>
+<?php //if ($DienstID): ?>
   <table border="0" class="commontable">
     <tr><td>Was</td></tr>
     <tr><td><input name="Dienst-Was" type="text" value="<?= htmlspecialchars($Was ?? '') ?>"></td></tr>
@@ -240,7 +240,7 @@ foreach ($alleHelferLevel as $lvl => $beschreibung) {
     <button name="ChangeDienst" value="1">Ändern</button>
     <button name="DeleteDienst" value="1">Löschen</button>
   </p>
-<?php endif; ?>
+<?php //endif; ?>
 </form>
 
 <!-- ======================================================

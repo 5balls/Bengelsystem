@@ -148,6 +148,13 @@ if( ! isset($selectedSet) or ! $selectedSet) {
     <tr onclick="window.location.href='Ausdrucke.php';">
     <td > <img src="Bilder/More.jpeg" style="width:30px;height:30px;"> <b>Ausdrucke</b>  </td> 
     </tr>
+    <tr onclick="window.location.href='ODSImport.php';">
+    <td > <img src="Bilder/More.jpeg" style="width:30px;height:30px;"> <b>ODS Import</b>  </td> 
+    </tr>
+    <tr onclick="window.location.href='ODSExport.php';">
+    <td > <img src="Bilder/More.jpeg" style="width:30px;height:30px;"> <b>ODS Export</b>  </td> 
+    </tr>
+
 </table>
 <p>
    <img src="Bilder/Info.jpeg" width="25px" height="25px">

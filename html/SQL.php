@@ -1316,9 +1316,11 @@ function DeleteDienst($db_link, $DienstID, $Rekursiv)#stmt2
 function GetDiensteForDay($db_link, $HelferLevel, $datestring)#stmt2
 {
     // TeilnehmerSchichtenAusdruck2
-    $unixtime = strtotime($datestring);
-    $date1 = date('Y-m-d', $unixtime + 24 * 60 * 60);
-    $date2 = date('Y-m-d', $unixtime);
+    $date = new DateTime($datestring);
+    $date2 = $date->format('Y-m-d'); // Current day
+
+    $date->modify('+1 day');
+    $date1 = $date->format('Y-m-d'); // Next day
     $sql = "
     SELECT DienstId, Was, Wo, Info,
            MIN(Von) AS MinVon, MAX(Bis) AS MaxBis
@@ -1339,17 +1341,20 @@ function GetDiensteForDay($db_link, $HelferLevel, $datestring)#stmt2
 function GetSchichtenForDienstForDay($db_link, $DienstID, $datestring)#stmt2
 {
     // TeilnehmerSchichtenAusdruck2
-    $unixtime = strtotime($datestring);
-    $date1 = date('Y-m-d', $unixtime + 24 * 60 * 60);
-    $date2 = date('Y-m-d', $unixtime);
+    $date = new DateTime($datestring);
+    $date2 = $date->format('Y-m-d'); // Current day
+
+    $date->modify('+1 day');
+    $date1 = $date->format('Y-m-d'); // Next day
     $sql = "
-    SELECT Von, Bis, Soll, Name, Handy
+    SELECT Von, Bis, Soll, Name, Handy, DATE_FORMAT(Von, '%H') AS ZeitVon, DATE_FORMAT(Bis, '%H') AS ZeitBis
     FROM Schicht
     LEFT JOIN EinzelSchicht
     USING (SchichtID)
     LEFT JOIN Helfer
     USING (HelferID)
     WHERE DienstID=?
+    AND Name IS NOT NULL
     AND Von<?
     AND Bis>?
     ORDER BY Von";
@@ -1374,6 +1379,46 @@ function GetSchichtenEinesDienstes($db_link, $DienstID)#stmt2
     return $result;
 }
 
+function GetSchichtenRangeDienstDay($db_link, $DienstID, $datestring)#stmt2
+{
+    $date = new DateTime($datestring);
+    $date2 = $date->format('Y-m-d'); // Current day
+
+    $date->modify('+1 day');
+    $date1 = $date->format('Y-m-d'); // Next day
+
+    $sql = "
+    SELECT SchichtID,Von,Bis,Soll,DATE_FORMAT(Von,'%H')
+    AS ZeitVon, DATE_FORMAT(Bis,'%H') AS ZeitBis FROM Schicht
+    WHERE DienstID=?
+    AND Von<?
+    AND Bis>?
+    ORDER BY Von";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $DienstID, $date1, $date2);
+    if (!$stmt) {error_log("Fehler in GetSchichtenEinesDienstes"); return false;}
+    $result = mysqli_stmt_get_result($stmt);
+    return $result;
+}
+
+function GetSchichtenMaxSollDienstDay($db_link, $DienstID, $datestring)#stmt2
+{
+    $date = new DateTime($datestring);
+    $date2 = $date->format('Y-m-d'); // Current day
+
+    $date->modify('+1 day');
+    $date1 = $date->format('Y-m-d'); // Next day
+    $sql = "
+        SELECT MAX(Soll) AS MaxSoll
+        FROM Schicht
+        WHERE DienstID = ?         
+        AND Von < ?         
+        AND Bis > ?;";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $DienstID, $date1, $date2);
+    if (!$stmt) {error_log("Fehler in GetSchichtenEinesDienstes"); return false;}
+    $result = mysqli_stmt_get_result($stmt);
+    return $result;
+}
+
 function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
 {
     $sql = "
@@ -1383,6 +1428,19 @@ function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
     $stmt = stmt_prepare_and_execute($db_link, $sql, "ssisi", $Von, $Bis, $Soll, $Dauer, $SchichtID);
     if (!$stmt) {error_log("Fehler in ChangeSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
+    return $result;
+}
+
+function GetMatchingSchicht($db_link, $DienstID, $Von, $Bis)
+{
+    $sql = "
+    SELECT SchichtID FROM Schicht WHERE 
+    DienstID=? AND
+    Von=? AND
+    Bis=?";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $DienstID, $Von, $Bis);
+    if (!$stmt) {error_log("Fehler in GetSchichtenEinesDienstes"); return false;}
+    $result = mysqli_stmt_get_result($stmt);
     return $result;
 }
 

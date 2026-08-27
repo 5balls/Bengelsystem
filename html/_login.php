@@ -56,10 +56,31 @@ if (!isset($_SESSION["HelferID"])) {
 </head>
 <body>
 <div id=jquerywarn></div>
-<div class="header">
-   <img alt="BürokratCon AA Logo" src="buerokratcon_arbeitsamt.svg" />
-   <h1>BürokratCon Agentur für Arbeit (Helferschichtensystem)</h1>
+<style>
+    /* Desktop Style (Default) */
+    .adaptive-container {
+        width: 50%;
+        margin: 0 auto; /* Centers the image on desktop */
+    }
+    .adaptive-img {
+        width: 90%;
+        height: auto;
+        display: block;
+        border-radius: 8px;
+    }
+
+    /* Mobile Style (Triggers on screens smaller than 768px) */
+    @media (max-width: 768px) {
+        .adaptive-container {
+            width: 100% !important;
+            max-width: 100% !important;
+        }
+    }
+</style>
+<div class="adaptive-container">
+   <img alt="Condor Logo" class="adaptive-img" src="https://jonglaria.org/conventions/condor/banner.png" />
 </div>
+   <h1>Condor Helferschichtensystem</h1>
 <form method="post" action="#Info">
 
   <fieldset>
