@@ -136,6 +136,10 @@ while ($zeile = mysqli_fetch_array($db_erg, MYSQLI_ASSOC) and $iCount < 3) {
     <td><img src="Bilder/PfeilRechts2.jpeg" style="width:30px;height:30px;"><b> Kalenderansicht</b></td>
 
   </tr>
+  <tr onclick="window.location.href='ICS.php';">
+    <td><img src="Bilder/PfeilRechts2.jpeg" style="width:30px;height:30px;"><b> Schichten herunterladen</b></td>
+  </tr>
+
   <tr onclick="window.location.href='ReadLog.php';">
     <td><img src="Bilder/PfeilRechts2.jpeg" style="width:30px;height:30px;"><b> Logs</b></td>
 

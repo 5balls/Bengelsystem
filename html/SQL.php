@@ -812,6 +812,29 @@ function SchichtIdArrayEinesHelfers($db_link, $HelferID)#stmt
     return($schichtIDs);
 }
 
+function AlleSchichtenEinesHelfersDetailed($db_link, $HelferID) #stmt2
+{
+    $sql = "SELECT EinzelSchicht.SchichtID, EinzelSchichtID, Was, Von, Bis, Info
+            FROM EinzelSchicht, Schicht, Dienst
+            WHERE EinzelSchicht.SchichtID = Schicht.SchichtID
+              AND Schicht.DienstID = Dienst.DienstID
+              AND HelferID = ?
+            ORDER BY Von";
+
+    $jetzt = date("Y-m-d H:i:s");
+    // is : HelferID -> integer Zeitstempel -> String
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $HelferID);
+    if (!$stmt) {
+        error_log("AlleSchichtenEinesHelfersVonJetzt: Fehler beim Prepare/Execute.");
+        return null;
+    }
+
+    $result = mysqli_stmt_get_result($stmt);
+    mysqli_stmt_close($stmt);
+    return $result ?: null;
+}
+
+
 function AlleSchichtenEinesHelfersVonJetzt($db_link, $HelferID) #stmt2
 {
     $sql = "SELECT EinzelSchicht.SchichtID, EinzelSchichtID, Was,
