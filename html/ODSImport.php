@@ -68,6 +68,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['ods_file'])) {
                         $reader->setReadDataOnly(true); // Ignore styles, fonts, and colors to save memory
                         $spreadsheet = $reader->load($fileDestination);
 
+                        $modifiedSchichten = [];
                         foreach ($spreadsheet->getSheetNames() as $sheetName) {
                             if (preg_match('/^(Helfer|Orga)\s+(Montag|Dienstag|Mittwoch|Donnerstag|Freitag|Samstag|Sonntag)$/i', $sheetName, $matches)) {
                                 $type = $matches[1];      // "Helfer" or "Orga"
@@ -84,13 +85,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_FILES['ods_file'])) {
 
                                 // Now you can load the sheet data and tag each row with this $sheetDate!
                                 $sheet = $spreadsheet->getSheetByName($sheetName);
-                                $message .= ParseDiensteSchichtenSheet($sheet, $helferLevel[$type], $sheetDate);
-                                // ... process rows here ...
+                                $message .= ParseDiensteSchichtenSheet($sheet, $helferLevel[$type], $sheetDate, $modifiedSchichten);
                             }
                             if(preg_match('/^(Beschreibung Dienste)\s+(Helfer|Orga)$/i', $sheetName, $matches)) {
                                 $type = $matches[2];      // "Helfer" or "Orga"
                                 $sheet = $spreadsheet->getSheetByName($sheetName);
                                 $message .= ParseDiensteBeschreibungenSheet($sheet, $helferLevel[$type]);
+                            }
+                        }
+                        for($helferlevel=1;$helferlevel<=2;$helferlevel++){
+                            foreach(AlleSchichten($db_link,1,$helferlevel) as $schicht){
+                                if(!in_array($schicht['SchichtID'],$modifiedSchichten)){
+                                    $message .= "Lösche nicht mehr verwendete Schicht ".$schicht['Was']." ".$schicht['Tag']." ".$schicht['Ab']."-".$schicht['Bis']."<br>";
+                                    if(!DeleteSchicht($db_link,$schicht['SchichtID'],true))
+                                        $message .= "Fehler beim löschen, checke Errorlog!<br>";
+                                }
                             }
                         }
                         $message .= "File uploaded successfully!";

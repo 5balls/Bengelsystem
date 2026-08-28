@@ -675,6 +675,7 @@ function AlleSchichtenImZeitbereich($db_link, $Von, $Bis, $HelferLevel = -1, $Di
                 C AS Ist,
                 DATE_FORMAT(Von,'%W %d %M') As Tag,
                 Soll,
+                Muss,
                 Dienst.DienstID
              FROM Dienst,SchichtUebersicht
              WHERE Von >= ? and Von < ? and Dienst.DienstID=SchichtUebersicht.DienstID $sql_helferlevel $sql_dienst
@@ -1494,8 +1495,21 @@ function DeleteSchicht($db_link, $SchichtID, $Rekursiv)#stmt2
 {
 
     if ($Rekursiv) {
-        // TODO rekursives loeschen
-        return false;
+        $sql = "DELETE FROM EinzelSchicht WHERE SchichtID = ?";
+        $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $SchichtID);
+        if (!$stmt) {error_log("Fehler in DeleteSchicht delete EinzelSchicht"); return false;}
+        $sql = "DELETE FROM Schicht where SchichtID=?";
+        $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $SchichtID);
+        if (!$stmt) {error_log("Fehler in DeleteSchicht select"); return false;}
+        $result = mysqli_stmt_affected_rows($stmt);
+        if ($result === 0) {
+            $err = "Fehler in DeleteSchicht nichts gelöscht";
+            error_log($err);
+            echo $err;
+            error_log(debug_sql($sql, "i", [$SchichtID]));
+            return false;
+        }
+        return true;
     } else {
         // Pruefen ob noch Helfer auf der Schicht eingetragen sind
         $sql = "SELECT Name FROM EinzelSchicht JOIN Helfer ON Helfer.HelferID = EinzelSchicht.HelferID WHERE SchichtID = ?";

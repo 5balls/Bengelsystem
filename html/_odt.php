@@ -445,14 +445,18 @@ function ParseDiensteBeschreibungenSheet($sheet, $helferlevel)
             $currentDienst = $dienste[$currentDienstName] ?? null;
             if($currentDienst == null)
                 break;
+            $dienstdata = GetEinzelDienst($db_link, $currentDienst);
             $info = $allCellsArray[$row+2][0];
+            // Don't overwrite existing data with empty cells:
+            if(!$info)
+                $info = $dienstdata['Info'];
             $place = $allCellsArray[$row+1][0];
-            // TODO:
+            if(!$place)
+                $place = $dienstdata['Wo'];
             if($allCellsArray[$row+1][1]){
                 $wer =  GetHelferIDByName($db_link, $allCellsArray[$row+1][1]);
             }
             else{
-                $dienstdata = GetEinzelDienst($db_link, $currentDienst);
                 $wer = $dienstdata['Leiter'];
             }
             ChangeDienst($db_link, $currentDienst, $currentDienstName, $place, $info, $wer, null, $helferlevel);
@@ -461,7 +465,7 @@ function ParseDiensteBeschreibungenSheet($sheet, $helferlevel)
     return $message;
 }
 
-function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
+function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date, &$touchedSchicht)
 {
     $db_link = ConnectDB();
     $message = "";
@@ -540,6 +544,7 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
                     else
                     {// Schicht exists -> change:
                         ChangeSchicht($db_link, $zeile['SchichtID'], $from, $to, $countEinzelSchichten, $duration, $countEinzelMussSchichten);
+                        $touchedSchicht[] = $zeile['SchichtID'];
                     }
                     // Check if there are hints for EinzelSchichten not in the Database:
 

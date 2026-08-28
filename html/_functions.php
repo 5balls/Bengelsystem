@@ -514,7 +514,8 @@ function _ZeigeDienstHeader($db_link, $DienstID, $Was, $Wo, $Info, $Leiter, $Lei
 function _ZeigeSchichtZeile(array $zeile, string $modus, array $MeineDienste, $HelferLevel, bool $foldable = true): void
 {
     $Color = 'red';
-    if ($zeile['Ist'] > 0)               { $Color = 'yellow'; }
+    if ($zeile['Ist'] > 0)               { $Color = 'orange'; }
+    if ($zeile['Ist'] >= $zeile['Muss']) { $Color = 'yellow'; }
     if ($zeile['Ist'] >= $zeile['Soll']) { $Color = 'green';  }
 
     $Von = $zeile['Ab'];
@@ -543,6 +544,8 @@ function _ZeigeSchichtZeile(array $zeile, string $modus, array $MeineDienste, $H
     echo "<td bgcolor='{$Color}'>" . (int)$zeile['Ist'] . '/' . (int)$zeile['Soll'] . '</td>';
     echo "<td style='width:10%;white-space:nowrap'>";
     if ($modus === 'SchichtEintragen') {
+        if(($zeile['Ist']>=$zeile['Muss']) && ($zeile['Ist']<$zeile['Soll']))
+            echo "❌Erstmal rote Schichten buchen wenn es noch welche gibt!";
         echo "<button name='plusschicht' value='" . (int)$SchichtID . "'>+</button>";
         echo "&nbsp;&nbsp;<button name='minusschicht' value='" . (int)$SchichtID . "'>&ndash;</button>";
         echo $regtext;
