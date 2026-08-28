@@ -11,6 +11,7 @@ use PhpOffice\PhpSpreadsheet\Cell\DataType;
 use PhpOffice\PhpSpreadsheet\Style\Border;
 use \PhpOffice\PhpSpreadsheet\Style\NumberFormat;
 use PhpOffice\PhpSpreadsheet\Cell\Coordinate;
+use PhpOffice\PhpSpreadsheet\Style\Fill;
 
 function _getStyles()
 {
@@ -67,6 +68,29 @@ function _getStyles()
                 ]
             ]
         ],
+        'helfer_title_soll' => [
+            'font' => [
+                'name' => 'Liberation Sans',
+                'size' => 8
+            ],
+            'borders' => [
+                'left' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'top' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'bottom' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ]
+            ],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => [
+                    'rgb' => 'FFFF00', // Hex code for yellow (do not include the # symbol)
+                ]
+            ]
+        ],
         'telefon_title' => [
             'font' => [
                 'name' => 'Liberation Sans',
@@ -81,6 +105,29 @@ function _getStyles()
                 ],
                 'bottom' => [
                     'borderStyle' => Border::BORDER_THIN
+                ]
+            ]
+        ],
+        'telefon_title_soll' => [
+            'font' => [
+                'name' => 'Liberation Sans',
+                'size' => 8
+            ],
+            'borders' => [
+                'right' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'top' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'bottom' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ]
+            ],
+            'fill' => [
+                'fillType' => Fill::FILL_SOLID,
+                'startColor' => [
+                    'rgb' => 'FFFF00', // Hex code for yellow (do not include the # symbol)
                 ]
             ]
         ],
@@ -104,6 +151,27 @@ function _getStyles()
                 ]
             ]
         ],
+        'orga_title_soll' => [
+            'font' => [
+                'name' => 'Liberation Sans',
+                'size' => 8
+            ],
+            'borders' => [
+                'left' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'right' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'top' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ],
+                'bottom' => [
+                    'borderStyle' => Border::BORDER_THIN
+                ]
+            ]
+        ],
+
         'infos' => [
             'font' => [
                 'name' => 'Liberation Sans',
@@ -219,56 +287,71 @@ function ExportSchichtenSheets(&$spreadsheet, $start_date)
     $db_link = ConnectDB();
     for($helferlevel = 2; $helferlevel >= 1; $helferlevel--){
         $date = $start_date;
-        $db_erg = GetDiensteForDay($db_link, $helferlevel, $date->format('Y-m-d'));
         $found_dienst = true;
-        while($found_dienst == true)
-        {
+        while($found_dienst){
             $weekDay = $weekDays[$date->format('N')];
+            $db_erg = GetDiensteForDay($db_link, $helferlevel, $date->format('Y-m-d'));
+            // Create sheet (if we don't fill it we can delete it later):
             $numberOfSheets = $spreadsheet->getSheetCount();
             if($numberOfSheets>10){
                 break;
             }
+            if($numberOfSheets == 1)
+            {
+                $sheet = $spreadsheet->getActiveSheet();
+                if($sheet->getTitle() != "Worksheet")
+                {
+                    $sheet = $spreadsheet->createSheet();
+                }
+            }
+            else
+            {
+                $sheet = $spreadsheet->createSheet();
+            }
+            $row=1;
+            $column=1;
+            $sheet->setTitle($helfer[$helferlevel]." ".$weekDay);
+            error_log("ODS Export: Sheet: ".$numberOfSheets." Titel: ".$helfer[$helferlevel]." ".$weekDay);
+            $sheet->setCellValue([$column, $row], $title[$helferlevel].$weekDay);
+            $sheet->getStyle([$column, $row])->applyFromArray($styles['title']);
             $column = 1;
             $row = 1;
             $found_dienst = false;
             while ($dienst = mysqli_fetch_array($db_erg, MYSQLI_ASSOC)) {
-                if($found_dienst == false)
-                {
-                    if($numberOfSheets == 1)
-                    {
-                        $sheet = $spreadsheet->getActiveSheet();
-                        if($sheet->getTitle() != "Worksheet")
-                        {
-                            $sheet = $spreadsheet->createSheet();
-                        }
-                    }
-                    else
-                    {
-                        $sheet = $spreadsheet->createSheet();
-                    }
-                    $sheet->setTitle($helfer[$helferlevel]." ".$weekDay);
-                    error_log("ODS Export: Sheet: ".$numberOfSheets." Titel: ".$helfer[$helferlevel]." ".$weekDay);
-                    $sheet->setCellValue([$column, $row], $title[$helferlevel].$weekDay);
-                    $sheet->getStyle([$column, $row])->applyFromArray($styles['title']);
-                }
                 $found_dienst = true;
                 $db_erg2 = GetSchichtenMaxSollDienstDay($db_link, $dienst['DienstId'], $date->format('Y-m-d'));
-                $zeile = mysqli_fetch_array($db_erg2, MYSQLI_ASSOC);
-                $maxSoll = (int)$zeile['MaxSoll'];
+                $maxSoll = 0;
+                $maxMuss = 0;
+                if($zeile = mysqli_fetch_array($db_erg2, MYSQLI_ASSOC))
+                    $maxSoll = (int)$zeile['MaxSoll'];
+                    $maxMuss = (int)$zeile['MaxMuss'];
                 // Mitigate some SQL query bug
-                if($maxSoll > 0){
-                    $row += 2;
-                    $sheet->setCellValue([$column, $row], $dienst['Was']);
-                    $sheet->getStyle([$column, $row])->applyFromArray($styles['dienst']);
+                if($maxMuss == 0){
+                    error_log("maxMuss 0");
+                    continue;
                 }
+                $row += 2;
+                $sheet->setCellValue([$column, $row], $dienst['Was']);
+                $sheet->getStyle([$column, $row])->applyFromArray($styles['dienst']);
+                error_log("Dienst: ".$dienst['DienstId']." ".$dienst['Was']);
                 for($column = 2; $column <= $maxSoll*$helferlevel + 1; $column += $helferlevel)
                 {
                     if($helferlevel == 2)
                     {
-                        $sheet->setCellValue([$column, $row], "Helfer*in");
-                        $sheet->getStyle([$column, $row])->applyFromArray($styles['helfer_title']);
-                        $sheet->setCellValue([$column+1, $row], "Telefon");
-                        $sheet->getStyle([$column+1, $row])->applyFromArray($styles['telefon_title']);
+                        if($column <= $maxMuss*$helferlevel + 1)
+                        {
+                            $sheet->setCellValue([$column, $row], "Helfer*in");
+                            $sheet->getStyle([$column, $row])->applyFromArray($styles['helfer_title']);
+                            $sheet->setCellValue([$column+1, $row], "Telefon");
+                            $sheet->getStyle([$column+1, $row])->applyFromArray($styles['telefon_title']);
+                        }
+                        else
+                        {
+                            $sheet->setCellValue([$column, $row], "SollHelfer*in");
+                            $sheet->getStyle([$column, $row])->applyFromArray($styles['helfer_title_soll']);
+                            $sheet->setCellValue([$column+1, $row], "Telefon");
+                            $sheet->getStyle([$column+1, $row])->applyFromArray($styles['telefon_title_soll']);
+                        }
                     }
                     else
                     {
@@ -277,56 +360,59 @@ function ExportSchichtenSheets(&$spreadsheet, $start_date)
                     }
                 }
                 $column = 1;
-                $db_erg2 = GetSchichtenRangeDienstDay($db_link, $dienst['DienstId'], $date->format('Y-m-d'));
 
                 $db_erg3 = GetSchichtenForDienstForDay($db_link, $dienst['DienstId'], $date->format('Y-m-d'));
-                $helfername = "";
-                $telefon = "";
-                $zeitvon = "";
-                if($db_erg2){
-                    while ($schicht = mysqli_fetch_array($db_erg2, MYSQLI_ASSOC)) {
-                        $allhelferforrange = false;
-                        $row++;
-                        for($column = 2; $column <= $maxSoll*$helferlevel + 1; $column += $helferlevel)
+                $einzelschicht = 0;
+                $oldzeitvon = null;
+                while($helferdata = mysqli_fetch_array($db_erg3, MYSQLI_ASSOC)){
+                    $zeitvon = $helferdata['ZeitVon'];
+                    if($oldzeitvon != $zeitvon)
+                        $einzelschicht = 0;
+                    $helfername[$zeitvon][$einzelschicht] = $helferdata['Name'];
+                    $telefon[$zeitvon][$einzelschicht] = $helferdata['Handy'];
+                    $einzelschicht++;
+                    $oldzeitvon = $zeitvon;
+                }
+
+                $db_erg2 = GetSchichtenRangeDienstDay($db_link, $dienst['DienstId'], $date->format('Y-m-d'));
+                while ($schicht = mysqli_fetch_array($db_erg2, MYSQLI_ASSOC)) {
+                    error_log("Schicht ".$schicht['ZeitVon']."-".$schicht['ZeitBis']." Uhr");
+                    $row++;
+                    for($column = 2; $column <= $maxSoll*$helferlevel + 1; $column += $helferlevel)
+                    {
+                        if($helferlevel == 2)
                         {
-                            if($allhelferforrange == false){
-                                if($helferdata = mysqli_fetch_array($db_erg3, MYSQLI_ASSOC)){
-                                    $helfername = $helferdata['Name'];
-                                    $telefon = $helferdata['Handy'];
-                                    $zeitvon = $helferdata['ZeitVon'];
-                                    // Check match:
-                                    if($schicht['ZeitVon'] != $zeitvon){
-                                        $allhelferforrange == true;
-                                    }
-                                }
+                            if(isset($helfername[$schicht['ZeitVon']][$column/2-1]) ? $helfername[$schicht['ZeitVon']][$column/2-1] : null){
+                                $sheet->setCellValue([$column, $row], $helfername[$schicht['ZeitVon']][$column/2-1]);
                             }
-                            if($helferlevel == 2)
+                            if(isset($telefon[$schicht['ZeitVon']][$column/2-1]) ? $telefon[$schicht['ZeitVon']][$column/2-1] : null){
+                                $sheet->setCellValue([$column+1, $row], $telefon[$schicht['ZeitVon']][$column/2-1]);
+                            }
+                            if($column <= $maxMuss*$helferlevel + 1)
                             {
-                                if($schicht['ZeitVon'] == $zeitvon){
-                                    $sheet->setCellValue([$column, $row], $helfername);
-                                    $sheet->setCellValue([$column+1, $row], $telefon);
-                                    $zeitvon = "";
-                                }
                                 $sheet->getStyle([$column, $row])->applyFromArray($styles['helfer_title']);
                                 $sheet->getStyle([$column+1, $row])->applyFromArray($styles['telefon_title']);
                             }
                             else
                             {
-                                if($schicht['ZeitVon'] == $zeitvon){
-                                    $sheet->setCellValue([$column, $row], $helfername);
-                                    $zeitvon = "";
-                                }
-                                $sheet->getStyle([$column, $row])->applyFromArray($styles['orga_title']);
+                                $sheet->getStyle([$column, $row])->applyFromArray($styles['helfer_title_soll']);
+                                $sheet->getStyle([$column+1, $row])->applyFromArray($styles['telefon_title_soll']);
                             }
                         }
-                        $column = 1;
-                        $sheet->setCellValue([$column, $row], $schicht['ZeitVon']."-".$schicht['ZeitBis']." Uhr");
-                        $sheet->getStyle([$column, $row])->applyFromArray($styles['timerange']);
+                        else
+                        {
+                            if(isset($helfername[$schicht['ZeitVon']][$column-2]) ? $helfername[$schicht['ZeitVon']][$column-2] : null){
+                                $sheet->setCellValue([$column, $row], $helfername[$schicht['ZeitVon']][$column-2]);
+                            }
+                            $sheet->getStyle([$column, $row])->applyFromArray($styles['orga_title']);
+                        }
                     }
+                    $column = 1;
+                    $sheet->setCellValue([$column, $row], $schicht['ZeitVon']."-".$schicht['ZeitBis']." Uhr");
+                    $sheet->getStyle([$column, $row])->applyFromArray($styles['timerange']);
                 }
             }
             $date = $date->modify("+1 day");
-            $db_erg = GetDiensteForDay($db_link, $helferlevel, $date->format('Y-m-d'));
         }
     }
 }
@@ -399,10 +485,15 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
                         }
                     }
                     $countEinzelSchichten = 0;
+                    $countEinzelMussSchichten = 0;
                     for($column = 1; $column <= $highestColumn; $column+=$helferlevel)
                     {
                         if($allCellsArray[$currentDienstRow][$column])
+                        {
                             $countEinzelSchichten++;
+                            if(preg_match('/^(?!Soll)/', $allCellsArray[$currentDienstRow][$column]))
+                                $countEinzelMussSchichten++;
+                        }
                         else
                             break;
                     }
@@ -424,12 +515,14 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
                     
                     if($zeile == null)
                     {// Schicht does not exist -> create:
-                        NewSchicht($db_link, $currentDienst, $from, $to, $countEinzelSchichten, $duration, "ODS Import");
+                        NewSchicht($db_link, $currentDienst, $from, $to, $countEinzelSchichten, $duration, "ODS Import", $countEinzelMussSchichten);
                     }
                     else
                     {// Schicht exists -> change:
-                        ChangeSchicht($db_link, $zeile['SchichtID'], $from, $to, $countEinzelSchichten, $duration);
+                        ChangeSchicht($db_link, $zeile['SchichtID'], $from, $to, $countEinzelSchichten, $duration, $countEinzelMussSchichten);
                     }
+                    // Check if there are hints for EinzelSchichten not in the Database:
+
 //                    $message .= "SELECT SchichtID FROM Schicht WHERE DienstID=".$currentDienst." AND Von=".$from." AND Bis=".$to."<br>";
                     $message .= $countEinzelSchichten." Schichten ".$matches[1]." bis ".$matches[2]." Uhr<br>";
                 }

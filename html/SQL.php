@@ -225,7 +225,16 @@ function GetHelferID($db_link, $Email){
     return null;
 }
 
-
+function GetHelferIDByName($db_link, $Name){
+    $sql = "SELECT HelferID FROM Helfer WHERE Name LIKE ? ORDER BY HelferId ASC LIMIT 1";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "s", "%".$Name."%");
+    if (!$stmt) { error_log("Fehler in HelferLogin, kein stmt"); die('Login ungültige Abfrage');}
+    $result = mysqli_stmt_get_result($stmt);
+    while ($zeile = mysqli_fetch_array($result, MYSQLI_ASSOC)) {
+        return $zeile['HelferID'];
+    }
+    return null;
+}
 
 //TODO: pruefen, ob Helfer bereits eingeloggt
 function HelferLogin($db_link, $HelferEmail, $HelferPasswort, $HelferStatus)#stmt
@@ -1322,17 +1331,17 @@ function GetDiensteForDay($db_link, $HelferLevel, $datestring)#stmt2
     $date->modify('+1 day');
     $date1 = $date->format('Y-m-d'); // Next day
     $sql = "
-    SELECT DienstId, Was, Wo, Info,
-           MIN(Von) AS MinVon, MAX(Bis) AS MaxBis
-    FROM Dienst
-    INNER JOIN Schicht
-    USING (DienstID)
-    WHERE HelferLevel=?
-    GROUP BY DienstID
-    HAVING MinVon<?
-    AND MaxBis>?
-    ORDER BY MIN(Von) ASC";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $HelferLevel, $date1, $date2);
+SELECT DienstId, Was, Wo, Info, 
+       MIN(Von) AS MinVon, 
+       MAX(Von) AS MaxVon
+FROM Dienst 
+INNER JOIN Schicht USING (DienstID) 
+WHERE HelferLevel = ? 
+  AND Von > ? AND Von <= ?
+GROUP BY DienstId, Was, Wo, Info 
+ORDER BY MinVon ASC, Was ASC;
+";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $HelferLevel, $date2, $date1);
     if (!$stmt) {error_log("Fehler in GetDiensteForDay select"); return false;}
     $result = mysqli_stmt_get_result($stmt);
     return $result;
@@ -1355,8 +1364,8 @@ function GetSchichtenForDienstForDay($db_link, $DienstID, $datestring)#stmt2
     USING (HelferID)
     WHERE DienstID=?
     AND Name IS NOT NULL
-    AND Von<?
-    AND Bis>?
+    AND Von<=?
+    AND Von>?
     ORDER BY Von";
     $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $DienstID, $date1, $date2);
     if (!$stmt) {error_log("Fehler in GetSchichtenForDiensteForDay select"); return false;}
@@ -1392,7 +1401,7 @@ function GetSchichtenRangeDienstDay($db_link, $DienstID, $datestring)#stmt2
     AS ZeitVon, DATE_FORMAT(Bis,'%H') AS ZeitBis FROM Schicht
     WHERE DienstID=?
     AND Von<?
-    AND Bis>?
+    AND Von>=?
     ORDER BY Von";
     $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $DienstID, $date1, $date2);
     if (!$stmt) {error_log("Fehler in GetSchichtenEinesDienstes"); return false;}
@@ -1408,7 +1417,7 @@ function GetSchichtenMaxSollDienstDay($db_link, $DienstID, $datestring)#stmt2
     $date->modify('+1 day');
     $date1 = $date->format('Y-m-d'); // Next day
     $sql = "
-        SELECT MAX(Soll) AS MaxSoll
+        SELECT MAX(Soll) AS MaxSoll, MAX(Muss) as MaxMuss
         FROM Schicht
         WHERE DienstID = ?         
         AND Von < ?         
@@ -1419,13 +1428,17 @@ function GetSchichtenMaxSollDienstDay($db_link, $DienstID, $datestring)#stmt2
     return $result;
 }
 
-function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer)#stmt2
+function ChangeSchicht($db_link, $SchichtID, $Von, $Bis, $Soll, $Dauer, $Muss=null)#stmt2
 {
+    if($Muss == null)
+    {
+        $Muss = $Soll;
+    }
     $sql = "
         UPDATE Schicht 
-        SET Von=?, Bis=?, Soll=?, Dauer=?
+        SET Von=?, Bis=?, Soll=?, Dauer=?, Muss=?
         WHERE SchichtID=?";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssisi", $Von, $Bis, $Soll, $Dauer, $SchichtID);
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "ssisii", $Von, $Bis, $Soll, $Dauer, $Muss, $SchichtID);
     if (!$stmt) {error_log("Fehler in ChangeSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
     return $result;
@@ -1444,10 +1457,14 @@ function GetMatchingSchicht($db_link, $DienstID, $Von, $Bis)
     return $result;
 }
 
-function NewSchicht($db_link, $DienstID, $Von, $Bis, $Soll, $Dauer, $HelferName) #stmt2
+function NewSchicht($db_link, $DienstID, $Von, $Bis, $Soll, $Dauer, $HelferName, $Muss=null) #stmt2
 {
-    $sql = "INSERT INTO Schicht (DienstID, Von, Bis, Soll, Dauer) values (?,?,?,?,?)";
-    $stmt = stmt_prepare_and_execute($db_link, $sql, "issis", $DienstID, $Von, $Bis, $Soll, $Dauer);
+    if($Muss == null)
+    {
+        $Muss = $Soll;
+    }
+    $sql = "INSERT INTO Schicht (DienstID, Von, Bis, Soll, Dauer, Muss) values (?,?,?,?,?,?)";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "issisi", $DienstID, $Von, $Bis, $Soll, $Dauer, $Muss);
     if (!$stmt) {error_log("Fehler in NewSchicht"); return false;}
     $result = mysqli_stmt_affected_rows($stmt);
     if ($result != 1) {
