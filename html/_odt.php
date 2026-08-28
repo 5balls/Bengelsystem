@@ -347,7 +347,7 @@ function ExportSchichtenSheets(&$spreadsheet, $start_date)
                         }
                         else
                         {
-                            $sheet->setCellValue([$column, $row], "SollHelfer*in");
+                            $sheet->setCellValue([$column, $row], "Optional Helfer*in");
                             $sheet->getStyle([$column, $row])->applyFromArray($styles['helfer_title_soll']);
                             $sheet->setCellValue([$column+1, $row], "Telefon");
                             $sheet->getStyle([$column+1, $row])->applyFromArray($styles['telefon_title_soll']);
@@ -364,6 +364,8 @@ function ExportSchichtenSheets(&$spreadsheet, $start_date)
                 $db_erg3 = GetSchichtenForDienstForDay($db_link, $dienst['DienstId'], $date->format('Y-m-d'));
                 $einzelschicht = 0;
                 $oldzeitvon = null;
+                $helfername = array(array());
+                $telefon = array(array());
                 while($helferdata = mysqli_fetch_array($db_erg3, MYSQLI_ASSOC)){
                     $zeitvon = $helferdata['ZeitVon'];
                     if($oldzeitvon != $zeitvon)
@@ -414,6 +416,10 @@ function ExportSchichtenSheets(&$spreadsheet, $start_date)
             }
             $date = $date->modify("+1 day");
         }
+        // The last sheet never has any Dienst on it so delete it:
+        $spreadsheet = $sheet->getParent();
+        $sheetIndex = $spreadsheet->getIndex($sheet);
+        $spreadsheet->removeSheetByIndex($sheetIndex);
     }
 }
 
@@ -441,8 +447,15 @@ function ParseDiensteBeschreibungenSheet($sheet, $helferlevel)
                 break;
             $info = $allCellsArray[$row+2][0];
             $place = $allCellsArray[$row+1][0];
-            $dienstdata = GetEinzelDienst($db_link, $currentDienst);
-            ChangeDienst($db_link, $currentDienst, $currentDienstName, $place, $info, $dienstdata['Leiter'], null, $helferlevel);
+            // TODO:
+            if($allCellsArray[$row+1][1]){
+                $wer =  GetHelferIDByName($db_link, $allCellsArray[$row+1][1]);
+            }
+            else{
+                $dienstdata = GetEinzelDienst($db_link, $currentDienst);
+                $wer = $dienstdata['Leiter'];
+            }
+            ChangeDienst($db_link, $currentDienst, $currentDienstName, $place, $info, $wer, null, $helferlevel);
         }
     }
     return $message;
@@ -471,8 +484,12 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
 
     for ($row = 1; $row <= $highestRow; $row++){
         if ($allCellsArray[$row][0]) {
-            if (preg_match('/^([0-9][0-9])-([0-9][0-9]) Uhr$/i', $allCellsArray[$row][0], $matches))
+            if (preg_match('/^([0-9][0-9])(?:-([0-9][0-9]))? Uhr$/i', $allCellsArray[$row][0], $matches))
             {
+                // If only start time is set assume 2 hours:
+                if(!isset($matches[2])){
+                    $matches[2] = sprintf('%02d',(int)$matches[1]+2);
+                }
                 if($currentDienstRow != 0){
 
                     if($currentDienst == null)
@@ -491,7 +508,7 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
                         if($allCellsArray[$currentDienstRow][$column])
                         {
                             $countEinzelSchichten++;
-                            if(preg_match('/^(?!Soll)/', $allCellsArray[$currentDienstRow][$column]))
+                            if(preg_match('/^(?!Soll|Optional)/', $allCellsArray[$currentDienstRow][$column]))
                                 $countEinzelMussSchichten++;
                         }
                         else
@@ -516,6 +533,9 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
                     if($zeile == null)
                     {// Schicht does not exist -> create:
                         NewSchicht($db_link, $currentDienst, $from, $to, $countEinzelSchichten, $duration, "ODS Import", $countEinzelMussSchichten);
+                        // Get SchichtID  so we always have it
+                        $db_erg = GetMatchingSchicht($db_link, $currentDienst, $from, $to);
+                        $zeile = mysqli_fetch_array($db_erg, MYSQLI_ASSOC);
                     }
                     else
                     {// Schicht exists -> change:
@@ -523,6 +543,28 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date)
                     }
                     // Check if there are hints for EinzelSchichten not in the Database:
 
+                    $db_erg = GetEinzelSchichtenForSchicht($db_link, $zeile['SchichtID']);
+                    $helferids = [];
+                    while( $einzelschicht = mysqli_fetch_array($db_erg, MYSQLI_ASSOC)){
+                        $helferids[] = $einzelschicht['HelferID'];
+                        error_log("Einzelschicht HelferID ".$einzelschicht['HelferID']);
+                    }
+                    for($column = 1; $column <= $highestColumn; $column+=$helferlevel)
+                    {
+                        if($allCellsArray[$row][$column]){
+                            $helferid =  GetHelferIDByName($db_link, $allCellsArray[$row][$column]);
+                            if($helferid){
+                                // We found the name, let's check if he already has a shift here:
+                                if(!in_array($helferid, $helferids)){
+                                    error_log("Schicht ".$currentDienstName." zuweisen an ".$allCellsArray[$row][$column]." id ".$helferid." row ".$row." column ".$column);
+                                    HelferSchichtZuweisen($db_link, $helferid, $zeile['SchichtID']);
+                                }
+                            }
+                        }
+                        else {
+                            break;
+                        }
+                    }
 //                    $message .= "SELECT SchichtID FROM Schicht WHERE DienstID=".$currentDienst." AND Von=".$from." AND Bis=".$to."<br>";
                     $message .= $countEinzelSchichten." Schichten ".$matches[1]." bis ".$matches[2]." Uhr<br>";
                 }

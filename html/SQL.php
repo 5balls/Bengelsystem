@@ -1347,6 +1347,17 @@ ORDER BY MinVon ASC, Was ASC;
     return $result;
 }
 
+function GetEinzelSchichtenForSchicht($db_link, $SchichtID)
+{
+    $sql = "
+        SELECT HelferID FROM EinzelSchicht WHERE SchichtID=?;
+    ";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "i", $SchichtID);
+    if (!$stmt) {error_log("Fehler in GetEinzelSchichtenForSchicht select"); return false;}
+    $result = mysqli_stmt_get_result($stmt);
+    return $result;
+}
+
 function GetSchichtenForDienstForDay($db_link, $DienstID, $datestring)#stmt2
 {
     // TeilnehmerSchichtenAusdruck2
