@@ -154,6 +154,9 @@ if( ! isset($selectedSet) or ! $selectedSet) {
     <tr onclick="window.location.href='ODSExport.php';">
     <td > <img src="Bilder/More.jpeg" style="width:30px;height:30px;"> <b>ODS Export</b>  </td> 
     </tr>
+    <tr onclick="window.location.href='Overlap.php';">
+    <td > <img src="Bilder/More.jpeg" style="width:30px;height:30px;"> <b>Überlappende / doppelbelegte Schichten</b>  </td> 
+    </tr>
 
 </table>
 <p>

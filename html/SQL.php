@@ -1811,6 +1811,43 @@ function GetEinzelDienst($db_link, $DienstID)
     return mysqli_fetch_assoc(mysqli_stmt_get_result($stmt));
 }
 
+function GetOverlappingSchichten($db_link)
+{
+$sql = "
+WITH CombinedShifts AS (
+    SELECT 
+        e.EinzelSchichtID,
+        e.HelferID,
+        h.Name,
+        s.Von,
+        s.Bis,
+        di.Was
+    FROM EinzelSchicht e
+    LEFT JOIN Schicht s ON e.SchichtID = s.SchichtID
+    LEFT JOIN Dienst di ON s.DienstID = di.DienstID
+    LEFT JOIN Helfer h ON e.HelferID = h.HelferID
+)
+SELECT 
+    a.EinzelSchichtID AS Schicht1_ID,
+    a.Was AS Was1,
+    b.EinzelSchichtID AS Schicht2_ID,
+    b.Was AS Was2,
+    a.Name,
+    a.Von AS Von1,
+    a.Bis AS Bis1,
+    b.Von AS Von2,
+    b.Bis AS Bis2
+FROM CombinedShifts a
+JOIN CombinedShifts b ON a.HelferID = b.HelferID
+WHERE a.EinzelSchichtID < b.EinzelSchichtID
+  AND a.Von < b.Bis
+  AND a.Bis > b.Von;";
+    $stmt = stmt_prepare_and_execute($db_link, $sql, "");
+    if (!$stmt) { return null; }
+    return mysqli_stmt_get_result($stmt);
+}
+
+
 
 
 

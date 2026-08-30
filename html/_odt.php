@@ -540,6 +540,7 @@ function ParseDiensteSchichtenSheet($sheet, $helferlevel, $date, &$touchedSchich
                         // Get SchichtID  so we always have it
                         $db_erg = GetMatchingSchicht($db_link, $currentDienst, $from, $to);
                         $zeile = mysqli_fetch_array($db_erg, MYSQLI_ASSOC);
+                        $touchedSchicht[] = $zeile['SchichtID'];
                     }
                     else
                     {// Schicht exists -> change:
