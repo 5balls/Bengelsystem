@@ -127,10 +127,21 @@ while ($zeile = mysqli_fetch_array($db_erg, MYSQLI_ASSOC) and $iCount < 3) {
     </td>
   </tr>
     -->
+<?php 
+$current_time = new DateTime();
+$interval = $current_time->diff($data_entry_end_date);
+if ($current_time < $data_entry_end_date):
+?>
   <tr onclick="window.location.href='AlleSchichten.php';">
-    <td><img src="Bilder/PfeilRechts2.jpeg" style="width:30px;height:30px;"><b>Schicht Hinzufügen</b></td>
+    <td><img src="Bilder/PfeilRechts2.jpeg" style="width:30px;height:30px;"><b>Schicht Hinzufügen</b> (noch <?php echo $interval->format('%a Tag(e), %h Stunden und %i Minuten'); ?> möglich)</td>
 
   </tr>
+<?php else: ?>
+  <tr>
+    <td><b>Leider können online keine Schichten mehr eingetragen werden, bitte vor Ort in Papierliste eintragen!</b></td>
+    </tr>
+<?php endif; ?>
+
 
   <tr onclick="window.location.href='Kalender.php';">
     <td><img src="Bilder/PfeilRechts2.jpeg" style="width:30px;height:30px;"><b> Kalenderansicht</b></td>

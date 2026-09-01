@@ -545,7 +545,7 @@ function _ZeigeSchichtZeile(array $zeile, string $modus, array $MeineDienste, $H
     echo "<td style='width:10%;white-space:nowrap'>";
     if ($modus === 'SchichtEintragen') {
         if(($zeile['Ist']>=$zeile['Muss']) && ($zeile['Ist']<$zeile['Soll']))
-            echo "❌Erstmal rote Schichten buchen wenn es noch welche gibt!";
+            echo "❌Erstmal rote / orangene Schichten buchen wenn es noch welche gibt!";
         echo "<button name='plusschicht' value='" . (int)$SchichtID . "'>+</button>";
         echo "&nbsp;&nbsp;<button name='minusschicht' value='" . (int)$SchichtID . "'>&ndash;</button>";
         echo $regtext;
