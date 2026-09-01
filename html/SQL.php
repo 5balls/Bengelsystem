@@ -1432,12 +1432,21 @@ function GetSchichtenRangeDienstDay($db_link, $DienstID, $datestring)#stmt2
     $date1 = $date->format('Y-m-d'); // Next day
 
     $sql = "
-    SELECT SchichtID,Von,Bis,Soll,DATE_FORMAT(Von,'%H')
-    AS ZeitVon, DATE_FORMAT(Bis,'%H') AS ZeitBis FROM Schicht
-    WHERE DienstID=?
-    AND Von<?
-    AND Von>=?
-    ORDER BY Von";
+SELECT SchichtID, Von, Bis, Soll, 
+       CASE 
+           WHEN DATE_FORMAT(Von, '%i') = '00' THEN DATE_FORMAT(Von, '%H')
+           ELSE DATE_FORMAT(Von, '%H:%i')
+       END AS ZeitVon, 
+       CASE 
+           WHEN DATE_FORMAT(Bis, '%i') = '00' THEN DATE_FORMAT(Bis, '%H')
+           ELSE DATE_FORMAT(Bis, '%H:%i')
+       END AS ZeitBis 
+FROM Schicht         
+WHERE DienstID = ?         
+  AND Von < ?         
+  AND Von >= ?             
+ORDER BY Von;
+";
     $stmt = stmt_prepare_and_execute($db_link, $sql, "iss", $DienstID, $date1, $date2);
     if (!$stmt) {error_log("Fehler in GetSchichtenEinesDienstes"); return false;}
     $result = mysqli_stmt_get_result($stmt);
